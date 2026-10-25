@@ -1,0 +1,313 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Dark themes (ember, emerald) get shadcn's dark: variant. Daylight is light. */
+@custom-variant dark (&:is([data-theme="ember"] *, [data-theme="emerald"] *));
+
+/* ------------------------------------------------------------------ */
+/* 1. Map CSS variables to Tailwind colour utilities                   */
+/* ------------------------------------------------------------------ */
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* DocuMind custom colours: use as bg-citation, text-success, bg-bubble ... */
+  --color-citation: var(--citation);
+  --color-citation-foreground: var(--citation-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-bubble: var(--bubble);
+  --color-bubble-foreground: var(--bubble-foreground);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. THEME 1: EMBER (default)                                         */
+/* ------------------------------------------------------------------ */
+:root,
+[data-theme="ember"] {
+  color-scheme: dark;
+  --radius: 0.875rem;
+
+  --background: #150709;
+  --foreground: #fff1ee;
+  --card: rgba(255, 255, 255, 0.07);
+  --card-foreground: #fff1ee;
+  --popover: #24101a;
+  --popover-foreground: #fff1ee;
+  --primary: #ffb020;
+  --primary-foreground: #0b0b1e;
+  --secondary: rgba(255, 255, 255, 0.08);
+  --secondary-foreground: #fff1ee;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #cdaab0;
+  --accent: rgba(255, 255, 255, 0.1);
+  --accent-foreground: #fff1ee;
+  --destructive: #f87171;
+  --border: rgba(255, 255, 255, 0.15);
+  --input: rgba(255, 255, 255, 0.22);
+  --ring: #ffb020;
+
+  --citation: #ffb020;
+  --citation-foreground: #0b0b1e;
+  --success: #5eead4;
+  --warning: #ffd27a;
+  --bubble: #c62a5e;
+  --bubble-foreground: #ffffff;
+
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glow: rgba(255, 176, 32, 0.6);
+  --grad-from: #ffb020;
+  --grad-to: #ff5e7e;
+  --grad-foreground: #0b0b1e;
+
+  --aurora-1: rgba(251, 113, 38, 0.42);
+  --aurora-2: rgba(244, 63, 94, 0.32);
+  --aurora-3: rgba(251, 191, 36, 0.2);
+
+  --sidebar: rgba(255, 255, 255, 0.07);
+  --sidebar-foreground: #fff1ee;
+  --sidebar-border: rgba(255, 255, 255, 0.15);
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. THEME 2: EMERALD NIGHT                                           */
+/* ------------------------------------------------------------------ */
+[data-theme="emerald"] {
+  color-scheme: dark;
+
+  --background: #04130f;
+  --foreground: #ecfdf5;
+  --card: rgba(255, 255, 255, 0.07);
+  --card-foreground: #ecfdf5;
+  --popover: #0a211b;
+  --popover-foreground: #ecfdf5;
+  --primary: #c6f432;
+  --primary-foreground: #04130f;
+  --secondary: rgba(255, 255, 255, 0.08);
+  --secondary-foreground: #ecfdf5;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #9dbdb0;
+  --accent: rgba(255, 255, 255, 0.1);
+  --accent-foreground: #ecfdf5;
+  --destructive: #f87171;
+  --border: rgba(255, 255, 255, 0.15);
+  --input: rgba(255, 255, 255, 0.22);
+  --ring: #c6f432;
+
+  --citation: #c6f432;
+  --citation-foreground: #04130f;
+  --success: #5eead4;
+  --warning: #d9f99d;
+  --bubble: #0b7a5c;
+  --bubble-foreground: #ffffff;
+
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glow: rgba(198, 244, 50, 0.55);
+  --grad-from: #c6f432;
+  --grad-to: #5eead4;
+  --grad-foreground: #04130f;
+
+  --aurora-1: rgba(16, 185, 129, 0.42);
+  --aurora-2: rgba(45, 212, 191, 0.26);
+  --aurora-3: rgba(190, 242, 100, 0.18);
+
+  --sidebar: rgba(255, 255, 255, 0.07);
+  --sidebar-foreground: #ecfdf5;
+  --sidebar-border: rgba(255, 255, 255, 0.15);
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. THEME 3: DAYLIGHT (light)                                        */
+/* ------------------------------------------------------------------ */
+[data-theme="daylight"] {
+  color-scheme: light;
+
+  --background: #f7f5ff;
+  --foreground: #17193a;
+  --card: rgba(255, 255, 255, 0.72);
+  --card-foreground: #17193a;
+  --popover: #ffffff;
+  --popover-foreground: #17193a;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(23, 25, 58, 0.06);
+  --secondary-foreground: #17193a;
+  --muted: rgba(23, 25, 58, 0.05);
+  --muted-foreground: #555b80;
+  --accent: rgba(79, 70, 229, 0.12);
+  --accent-foreground: #17193a;
+  --destructive: #b91c1c;
+  --border: rgba(23, 25, 58, 0.12);
+  --input: rgba(23, 25, 58, 0.25);
+  --ring: #4f46e5;
+
+  --citation: #ffc93c;
+  --citation-foreground: #17193a;
+  --success: #0f766e;
+  --warning: #92400e;
+  --bubble: #4f46e5;
+  --bubble-foreground: #ffffff;
+
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(23, 25, 58, 0.1);
+  --glow: rgba(255, 201, 60, 0.55);
+  --grad-from: #ffd65c;
+  --grad-to: #ff9ed2;
+  --grad-foreground: #17193a;
+
+  --aurora-1: rgba(139, 92, 246, 0.28);
+  --aurora-2: rgba(56, 189, 248, 0.28);
+  --aurora-3: rgba(251, 146, 60, 0.22);
+
+  --sidebar: rgba(255, 255, 255, 0.72);
+  --sidebar-foreground: #17193a;
+  --sidebar-border: rgba(23, 25, 58, 0.1);
+}
+
+/* ------------------------------------------------------------------ */
+/* 5. Base styles                                                      */
+/* ------------------------------------------------------------------ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply font-sans text-foreground antialiased;
+    min-height: 100vh;
+    /* Aurora glow behind everything, changes with the theme */
+    background:
+      radial-gradient(700px 480px at 12% 0%, var(--aurora-1), transparent),
+      radial-gradient(560px 420px at 92% 8%, var(--aurora-2), transparent),
+      radial-gradient(560px 420px at 60% 100%, var(--aurora-3), transparent),
+      var(--background);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
+
+  /* Highlighted evidence passage inside source cards and PDF viewer */
+  mark {
+    background: var(--citation);
+    color: var(--citation-foreground);
+    padding: 1px 4px;
+    border-radius: 3px;
+    box-shadow: 0 0 12px var(--glow);
+  }
+
+  /* Visible keyboard focus */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 6. Reusable DocuMind classes                                        */
+/* ------------------------------------------------------------------ */
+@layer components {
+  /* Frosted glass card */
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xl);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  /* Main call-to-action gradient button (use with shadcn Button) */
+  .btn-gradient {
+    background: linear-gradient(135deg, var(--grad-from), var(--grad-to));
+    color: var(--grad-foreground);
+    font-weight: 600;
+    border: 0;
+  }
+  .btn-gradient:hover {
+    filter: brightness(1.08);
+  }
+
+  /* Glowing citation chip, like [1] [2] inside answers */
+  .citation-chip {
+    display: inline-flex;
+    align-items: center;
+    background: var(--citation);
+    color: var(--citation-foreground);
+    font-family: var(--font-jetbrains), ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 999px;
+    box-shadow: 0 0 14px var(--glow);
+    cursor: pointer;
+  }
+
+  /* Outlined file/source tag */
+  .tag-chip {
+    display: inline-block;
+    border: 1px solid var(--citation);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-family: var(--font-jetbrains), ui-monospace, monospace;
+    font-size: 12px;
+  }
+
+  /* Small uppercase section label */
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  /* Status badges: Ready / Processing / Failed */
+  .status-ready { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+  .status-processing { background: color-mix(in srgb, var(--citation) 20%, transparent); color: var(--warning); }
+  .status-failed { background: color-mix(in srgb, var(--destructive) 18%, transparent); color: var(--destructive); }
+}
+
+/* Respect "reduce motion" */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
