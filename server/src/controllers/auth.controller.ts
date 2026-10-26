@@ -3,12 +3,26 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.model.js";
 
+const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+
+const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    maxAge: SEVEN_DAYS,
+    path: "/",
+}
+
 const createToken = (userId: string) => {
     const secreat = process.env.JWT_SECRET;
     if (!secreat) {
         throw new Error("JWT_SECRET is not defined");
     }
-    return jwt.sign({ userId }, secreat, { expiresIn: "1d" });
+    return jwt.sign({ userId }, secreat, { expiresIn: SEVEN_DAYS });
+};
+
+const setAuthCookie = (res: Response, userId: string) => {
+    res.cookie("token", createToken(userId), cookieOptions);
 };
 
 // Register 
@@ -44,12 +58,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             passwordHash
         });
 
-        const token = createToken(newUser._id.toString());
+        setAuthCookie(res, newUser._id.toString());
 
-        res.status(200).json({
+        res.status(201).json({
             success: true,
             message: "User created successfully",
-            token,
             user: {
                 id: newUser._id,
                 name: newUser.name,
@@ -113,12 +126,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        const token = createToken(user._id.toString());
+        setAuthCookie(res, user._id.toString());
 
         res.status(200).json({
             success: true,
             message: "User logged in successfully",
-            token,
             user: {
                 id: user._id,
                 name: user.name,
@@ -135,3 +147,36 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         });
     }
 }
+
+export const logout = async (_req: Request, res: Response): Promise<void> => {
+    // clearCookie only works if the options match the ones used to set it
+    const { maxAge, ...clearOptions } = cookieOptions;
+    res.clearCookie("token", clearOptions);
+
+    res.status(200).json({ success: true, message: "User logged out successfully" });
+};
+
+export const getMe = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const user = await User.findById(req.userId);
+ 
+        if (!user) {
+            res.status(401).json({ success: false, message: "Please log in again" });
+            return;
+        }
+ 
+        res.status(200).json({
+            success: true,
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                theme: user.theme,
+            },
+        });
+    } catch (error) {
+        console.error("getMe failed:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+ 
