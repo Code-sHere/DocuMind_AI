@@ -3,11 +3,19 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { register } from "@/lib/api/auth";
 
 const RegisterForm = () => {
+  const router = useRouter();
+
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const hasMinLength = password.length >= 8;
+  const hasMaxLength = password.length <= 12;
   const hasNumber = /\d/.test(password);
   const hasSymbol = /[^A-Za-z0-9]/.test(password);
   const hasLowercase = /[a-z]/.test(password);
@@ -21,11 +29,11 @@ const RegisterForm = () => {
   ].filter(Boolean).length;
 
   const strength =
-    password.length === 0
+    !password
       ? ""
       : score <= 1
         ? "Weak"
-        : score <= 2
+        : score === 2
           ? "Medium"
           : score === 3
             ? "Strong"
@@ -38,9 +46,76 @@ const RegisterForm = () => {
         ? "bg-warning"
         : "bg-success";
 
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    setError("");
+
+    const formData = new FormData(event.currentTarget);
+    const name = String(formData.get("name") ?? "").trim();
+    const email = String(formData.get("email") ?? "").trim();
+    const confirmPassword = String(
+      formData.get("confirmPassword") ?? ""
+    );
+
+    if (name.length < 2 || name.length > 80) {
+      setError("Name must be between 2 and 80 characters.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    if (password.length < 8 || password.length > 12) {
+      setError("Password must contain 8–12 characters.");
+      return;
+    }
+
+    if (
+      !hasNumber ||
+      !hasSymbol ||
+      !hasLowercase ||
+      !hasUppercase
+    ) {
+      setError(
+        "Include uppercase and lowercase letters, a number, and a symbol."
+      );
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const result = await register(name, email, password);
+
+      toast.success(result.message || "Account created successfully!");
+
+      
+      router.replace("/dashboard");
+      router.refresh();
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Unable to create your account.";
+
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="relative flex min-h-screen items-center justify-between gap-12 overflow-hidden px-7 py-10 text-foreground md:px-16">
-      {/* Register card */}
       <section className="glass relative z-10 w-full max-w-[520px] shrink-0 p-7 sm:p-11">
         <Link href="/" className="text-2xl font-bold tracking-tight">
           DocuMind <span className="text-primary">AI</span>
@@ -52,51 +127,47 @@ const RegisterForm = () => {
 
         <p className="mt-2 text-sm text-muted-foreground">
           Already registered?{" "}
-          <Link
-            href="/login"
-            className="underline underline-offset-4 hover:text-foreground"
-          >
+          <Link href="/login" className="underline">
             Log in
           </Link>
         </p>
 
-        <form className="mt-6 space-y-3">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-3">
           <input
             name="name"
-            type="text"
             placeholder="Full name"
-            aria-label="Full name"
             autoComplete="name"
+            minLength={2}
+            maxLength={80}
             required
-            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm outline-none focus:ring-1 focus:ring-ring"
+            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm"
           />
 
           <input
             name="email"
             type="email"
             placeholder="Email"
-            aria-label="Email"
             autoComplete="email"
+            maxLength={254}
             required
-            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm outline-none focus:ring-1 focus:ring-ring"
+            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm"
           />
 
           <input
             name="password"
             type="password"
             placeholder="Password"
-            aria-label="Password"
             autoComplete="new-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             minLength={8}
+            maxLength={12}
             required
-            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm outline-none focus:ring-1 focus:ring-ring"
+            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm"
           />
 
-          {/* Dynamic password strength bars */}
           <div
-            className="flex gap-2 pt-0.5"
+            className="flex gap-2"
             role="progressbar"
             aria-label="Password strength"
             aria-valuemin={0}
@@ -106,43 +177,50 @@ const RegisterForm = () => {
             {[1, 2, 3, 4].map((bar) => (
               <div
                 key={bar}
-                className={`h-[5px] flex-1 rounded-full transition-colors duration-300 ${
+                className={`h-[5px] flex-1 rounded-full transition-colors ${
                   score >= bar ? strengthColor : "bg-border"
                 }`}
               />
             ))}
           </div>
 
-          {/* Dynamic strength label */}
-          <p
-            aria-live="polite"
-            className={`text-xs ${
-              score <= 1
-                ? "text-destructive"
-                : score === 2
-                  ? "text-warning"
-                  : "text-success"
-            }`}
-          >
+          <p className="text-xs text-muted-foreground" aria-live="polite">
             {password.length === 0
-              ? "8+ characters · a number · a symbol"
+              ? "8–12 characters · uppercase · lowercase · number · symbol"
               : `${strength} password · ${
-                  hasMinLength ? "8+ characters ✓" : "Need 8+ characters"
+                  hasMinLength && hasMaxLength
+                    ? "length ✓"
+                    : "use 8–12 characters"
                 } · ${hasNumber ? "number ✓" : "add a number"} · ${
                   hasSymbol ? "symbol ✓" : "add a symbol"
                 }`}
           </p>
 
+          <input
+            name="confirmPassword"
+            type="password"
+            placeholder="Confirm password"
+            autoComplete="new-password"
+            required
+            className="h-[46px] w-full rounded-xl border border-input bg-muted px-3 text-sm"
+          />
+
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
           <button
             type="submit"
-            className="btn-gradient mt-1 h-11 w-full rounded-xl transition hover:brightness-110"
+            disabled={loading}
+            className="btn-gradient mt-1 h-11 w-full rounded-xl transition hover:brightness-110 disabled:opacity-60"
           >
-            Create account
+            {loading ? "Creating account..." : "Create account"}
           </button>
         </form>
       </section>
 
-      {/* Right-side headline */}
       <section className="relative z-10 hidden flex-1 items-center justify-center lg:flex">
         <h2 className="max-w-2xl text-5xl font-extrabold leading-[1.02] tracking-tight xl:text-6xl">
           Every answer, traced
