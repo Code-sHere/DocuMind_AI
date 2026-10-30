@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import LandingNav from "@/app/(app)/layout";
+import { LandingNav } from "@/app/(app)/layout";
 
 const steps = [
   {
@@ -25,7 +25,7 @@ const steps = [
 export default function LandingPage() {
   return (
     <main>
-      <LandingNav/>
+      <LandingNav />
 
       {/* Hero */}
       <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-16 lg:grid-cols-2 lg:py-24">
