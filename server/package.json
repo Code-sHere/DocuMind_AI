@@ -25,6 +25,7 @@
     "mongoose": "^9.11.3",
     "multer": "^2.5.0",
     "openai": "^7.43.0",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^6.4.299",
     "zod": "^4.6.7"
   },
@@ -36,6 +37,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.6",
+    "@types/pdf-parse": "^1.1.5",
     "tsx": "^4.23.15",
     "typescript": "5.9"
   }

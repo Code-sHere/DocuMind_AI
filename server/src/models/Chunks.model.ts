@@ -15,15 +15,15 @@ interface IChunk {
 }
 
 const chunkSchema = new Schema<IChunk>({
-    ownerId: { type: Types.ObjectId, required: true, ref: "User" },
-    documentId: { type: Types.ObjectId, required: true, ref: "Document" },
+    ownerId: { type: Schema.Types.ObjectId, required: true, ref: "User" },
+    documentId: { type: Schema.Types.ObjectId, required: true, ref: "Document" },
     chunkIndex: { type: Number, required: true, min: 0 },
     pageNumber: { type: Number, required: true, min: 1 },
-    sectionTitle: { type: String, required: true },
+    sectionTitle: { type: String, },
     text: { type: String, required: true },
     tokenCount: { type: Number, required: true, min: 0 },
-    embeddingVector: { type: [Number], required: true },
-    embeddingModel: { type: String, required: true },
+    embeddingVector: { type: [Number], default: undefined },
+    embeddingModel: { type: String, },
     createdAt: { type: Date, default: Date.now }
 })
 

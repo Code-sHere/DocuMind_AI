@@ -1,10 +1,12 @@
-
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getMe, logout, type User } from "@/lib/api/auth";
 import { toast } from "sonner";
+import { Trash2, Layers, Loader2 } from "lucide-react";
+import { uploadDocuments, listDocuments, deleteDocument, type DocItem } from "@/lib/api/documents";
+import Sidebar from "@/app/(app)/layout";
 
 import {
   X,
@@ -12,8 +14,7 @@ import {
   LogOut,
   UploadCloud,
   FilePlus2,
-} from "lucide-react";
-import Sidebar from "@/app/(app)/layout";
+} from "lucide-react"
 
 export default function Dashboard() {
   const router = useRouter();
@@ -28,6 +29,11 @@ export default function Dashboard() {
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState("");
+
+  const [documents, setDocuments] = useState<DocItem[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
 
   // Load authenticated user
   useEffect(() => {
@@ -57,6 +63,45 @@ export default function Dashboard() {
       active = false;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (!user) return;
+    listDocuments().then((res) => setDocuments(res.documents)).catch(() => toast.error("Unable to fetch documents"));
+  }, [user]);
+
+  async function handleUpload() {
+    if (files.length === 0) return;
+    if (files.length > 5) {
+      setError("You can only upload up to 5 files at a time.");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      await uploadDocuments(files);
+      const res = await listDocuments();
+      setDocuments(res.documents);
+      setFiles([]);
+      toast.success("File uploaded successfully.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to upload file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      setDeletingId(id);
+      await deleteDocument(id);
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
+      toast.success("File deleted successfully.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete file.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   // Logout
   async function handleLogout() {
@@ -164,17 +209,6 @@ export default function Dashboard() {
               <span className="rounded-full border border-[#ff9500]/20 bg-[#ff9500]/10 px-4 py-2 text-sm font-bold text-[#FFB020]">
                 18 / 50 questions today
               </span>
-
-              {/* Logout Button */}
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <LogOut size={16} />
-                {loggingOut ? "Logging out..." : "Logout"}
-              </button>
 
             </div>
           </header>
@@ -307,13 +341,26 @@ export default function Dashboard() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={clearFiles}
-                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-destructive"
-                >
-                  Clear all
-                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={clearFiles}
+                    disabled={uploading}
+                    className="text-sm font-medium text-muted-foreground transition-colors hover:text-destructive"
+                  >
+                    Clear all
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleUpload}
+                    disabled={uploading}
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-300 to-pink-500 px-5 py-2 text-sm font-semibold text-black disabled:opacity-60"
+                  >
+                    {uploading ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+                    {uploading ? "Uploading..." : "Upload"}
+                  </button>
+                </div>
 
               </div>
 
@@ -361,7 +408,68 @@ export default function Dashboard() {
 
             </section>
           )}
+          {/* ================= UPLOADED DOCUMENTS ================= */}
+          <section className="space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">
+                Uploaded Documents
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {documents.length} document(s) uploaded
+              </p>
+            </div>
 
+            {documents.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                No documents uploaded yet.
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {documents.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="shrink-0 rounded-xl bg-orange-500/10 p-3">
+                        <FileText className="size-5 text-orange-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {doc.name}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {(doc.size / 1024 / 1024).toFixed(2)} MB
+                          {doc.status !== "ready" && ` · ${doc.status}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground">
+                        <Layers size={14} className="text-orange-400" />
+                        {doc.chunkCount} chunks
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(doc.id)}
+                        disabled={deletingId === doc.id}
+                        aria-label={`Delete ${doc.name}`}
+                        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                      >
+                        {deletingId === doc.id ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={18} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </section>
       </main>
     </>

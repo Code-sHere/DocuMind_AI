@@ -43,7 +43,7 @@ export default function LandingPage() {
 
           <div className="flex flex-wrap gap-3">
             <Link
-              href="/register"
+              href="/dashboard"
               className={cn(buttonVariants({ size: "lg" }), "btn-gradient")}
             >
               Upload your first document

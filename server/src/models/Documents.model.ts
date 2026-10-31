@@ -19,6 +19,9 @@ interface IDocument {
     errorCode?: string;
     chunkCount: number;
 
+    fileUrl: string;
+    extractedText?: string;
+
     embeddingModelName?: string;
     embeddingModelVersion?: string;
 
@@ -74,23 +77,25 @@ const documentSchema = new Schema<IDocument>({
         required: true,
         select: false,
     },
+    fileUrl: { type: String, required: true },
+    extractedText: { type: String, select: false },
 
     fileSize: {
         type: Number,
         required: true,
-        min:1,
+        min: 1,
     },
     pageCount: {
         type: Number,
-        default:0,
-        min:0,
+        default: 0,
+        min: 0,
     },
 
     status: {
         type: String,
         required: true,
-        enum:["uploaded", "processing", "ready", "failed", "deleting"],
-        default:"uploaded",
+        enum: ["uploaded", "processing", "ready", "failed", "deleting"],
+        default: "uploaded",
         index: true,
     },
     errorCode: {
@@ -102,7 +107,7 @@ const documentSchema = new Schema<IDocument>({
     chunkCount: {
         type: Number,
         default: 0,
-        min:0,
+        min: 0,
     },
 
     embeddingModelName: {
@@ -133,26 +138,24 @@ const documentSchema = new Schema<IDocument>({
 
     topics: {
         type: [String],
-        default:[],
+        default: [],
     },
 
     collectionIds: {
         type: [Schema.Types.ObjectId],
-        ref:"Collection",
-        default:[],
+        ref: "Collection",
+        default: [],
         required: false,
     },
 
     createdAt: {
-        type: Date,
-        required: true,
+        type: Date
     },
     updatedAt: {
         type: Date,
-        required: true,
     },
 })
 
-documentSchema.index({ ownerId: 1, workspaceId: 1, displayName: 1 }, { unique: true });
+// documentSchema.index({ ownerId: 1, workspaceId: 1, displayName: 1 }, { unique: true });
 
 export default mongoose.model<IDocument>("Document", documentSchema);

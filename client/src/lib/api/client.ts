@@ -11,13 +11,15 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+
+  const isFormData = init.body instanceof FormData;
+
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     credentials: "include", // REQUIRED: lets the browser store and send the token cookie
-    headers: {
-      "Content-Type": "application/json",
-      ...init.headers,
-    },
+    headers: isFormData
+      ? { ...init.headers } // browser khud boundary ke saath Content-Type set karega
+      : { "Content-Type": "application/json", ...init.headers },
   });
 
   // Backend always replies with JSON: { success, message, ... }
