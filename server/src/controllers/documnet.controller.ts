@@ -5,7 +5,8 @@ import mongoose from "mongoose";
 import Document from "../models/Documents.model.js";
 import Chunk from "../models/Chunks.model.js";
 import { extractText } from "../utils/extractText.js";
-import { chunkText } from "../utils/chunkText.js";
+import { chunkPages } from "../utils/chunkText.js";
+import { embedDocumentChunks } from "../services/ingestion/embedChunks.js";
 
 
 const uploadToCloudinary = (
@@ -32,11 +33,13 @@ export const uploadDocumnets = async (req: Request, res: Response) => {
     try {
         const files = req.files as Express.Multer.File[] | undefined;
 
-        if (!files) return res.status(400).json({ success: false, message: "No file uploaded" });
-
-        const results = [];
+        if (!files || files.length === 0) {
+            return res.status(400).json({ success: false, message: "No file uploaded" });
+        }
 
         if (!req.userId) return res.status(400).json({ success: false, message: "User not found" });
+
+        const results = [];
 
         for (const file of files) {
             const uploaded = await uploadToCloudinary(file.buffer, file.originalname);
@@ -53,27 +56,35 @@ export const uploadDocumnets = async (req: Request, res: Response) => {
             });
 
             try {
-                const text = await extractText(file.buffer, file.mimetype);
+                // 1. Text, page by page
+                const pages = await extractText(file.buffer, file.mimetype);
+                const text = pages.map((p) => p.text).join("\n");
                 if (!text.trim()) throw new Error("EMPTY_TEXT");
 
-                const chunks = chunkText(text);
+                // 2. Chunks that remember their real page number
+                const chunks = chunkPages(pages);
+                if (chunks.length === 0) throw new Error("EMPTY_TEXT");
 
                 await Chunk.insertMany(
-                    chunks.map((content, i) => ({
+                    chunks.map((chunk, i) => ({
                         ownerId: doc.ownerId,
                         documentId: doc._id,
                         chunkIndex: i,
-                        pageNumber: 1,
-                        text: content,                              // field ka naam "text" hai
-                        tokenCount: Math.ceil(content.length / 4),  // approx
+                        pageNumber: chunk.pageNumber,
+                        text: chunk.text,
+                        tokenCount: Math.ceil(chunk.text.length / 4), // approx
                     }))
                 );
 
+                // 3. Embeddings (vectors) for every chunk
+                await embedDocumentChunks(doc._id);
+
                 doc.extractedText = text;
                 doc.chunkCount = chunks.length;
-                doc.status = "ready";
+                doc.status = "ready"; // ready only after embeddings are saved
                 await doc.save();
             } catch (e) {
+                console.error("Processing failed:", e);
                 doc.status = "failed";
                 doc.errorCode = e instanceof Error ? e.message : "PROCESSING_ERROR";
                 await doc.save();
@@ -140,13 +151,13 @@ export const deleteDocument = async (req: Request, res: Response): Promise<void>
     }
 };
 
-export const listDocuments = async(req: Request, res: Response): Promise<void> => {
-    try{
+export const listDocuments = async (req: Request, res: Response): Promise<void> => {
+    try {
         const docs = await Document.find({ ownerId: req.userId }).sort({ createdAt: -1 }).select("originalFileName fileSize status chunkCount createdAt");
 
         res.status(200).json({
-            success:true,
-            documents: docs.map((d)=>({
+            success: true,
+            documents: docs.map((d) => ({
                 id: d._id,
                 filename: d.originalFileName,
                 size: d.fileSize,
@@ -155,7 +166,7 @@ export const listDocuments = async(req: Request, res: Response): Promise<void> =
                 createdAt: d.createdAt
             }))
         })
-    }catch(error){
+    } catch (error) {
         console.error("listDocuments failed:", error);
         res.status(500).json({ success: false, message: "Unable to list documents" });
     }
