@@ -2,7 +2,7 @@ import {api} from "./client";
 
 export type DocItem = {
     id: string;
-    name:string;
+    filename:string;
     size:number;
     status: "uploaded" | "processing" | "ready" | "failed" | "deleting";
     chunksCount: number;

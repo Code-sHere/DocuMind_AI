@@ -189,7 +189,7 @@ export default function Dashboard() {
   return (
     <>
       <Sidebar />
-      <main className="min-h-screen bg-background pt-24 text-foreground transition-colors duration-300">
+      <main className="min-h-screen pt-24 text-foreground transition-colors duration-300">
         <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-8 md:px-10">
           <header className="flex flex-wrap items-center justify-between gap-5">
 
@@ -436,7 +436,7 @@ export default function Dashboard() {
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-foreground">
-                          {doc.name}
+                          {doc.filename}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {(doc.size / 1024 / 1024).toFixed(2)} MB
@@ -448,14 +448,14 @@ export default function Dashboard() {
                     <div className="flex shrink-0 items-center gap-2">
                       <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-3 py-1.5 text-xs font-semibold text-foreground">
                         <Layers size={14} className="text-orange-400" />
-                        {doc.chunkCount} chunks
+                        {doc.chunksCount} chunks
                       </div>
 
                       <button
                         type="button"
                         onClick={() => handleDelete(doc.id)}
                         disabled={deletingId === doc.id}
-                        aria-label={`Delete ${doc.name}`}
+                        aria-label={`Delete ${doc.filename}`}
                         className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
                       >
                         {deletingId === doc.id ? (
