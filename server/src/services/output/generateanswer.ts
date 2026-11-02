@@ -1,7 +1,7 @@
 import { Type } from "@google/genai";
 import { getClient } from "../ai/gemini.js";
 
-export const LLM_MODEL = process.env.LLM_MODEL ?? "gemini-2.5-flash";
+export const LLM_MODEL = process.env.LLM_MODEL ?? "gemini-3.8-flash";
 
 export type RawAnswer = {
     answer: string;
@@ -29,7 +29,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
 export const generateAnswer = async (userPrompt: string) => {
     const res = await withTimeout(
         getClient().models.generateContent({
-            model: LLM_MODEL,
+            model: LLM_MODEL ?? "gemini-3.5-flash",
             contents: userPrompt,
             config: {
                 systemInstruction: SYSTEM_PROMPT,
@@ -74,3 +74,46 @@ export const generateAnswer = async (userPrompt: string) => {
         },
     };
 };
+
+
+const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+async function withGeminiRetry<T>(
+    operation: () => Promise<T>,
+    maxAttempts = 3
+): Promise<T> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await operation();
+        } catch (error) {
+            const status =
+                typeof error === "object" &&
+                error !== null &&
+                "status" in error
+                    ? Number(error.status)
+                    : 0;
+
+            const retryable = [429, 500, 502, 503, 504].includes(status);
+
+            if (!retryable || attempt === maxAttempts) {
+                if (retryable) {
+                    console.error("Gemini temporarily unavailable:", error);
+                    throw new Error("AI_UNAVAILABLE");
+                }
+
+                throw error;
+            }
+
+            const delay = 1000 * 2 ** (attempt - 1);
+
+            console.log(
+                `Gemini retry ${attempt}/${maxAttempts} in ${delay}ms`
+            );
+
+            await sleep(delay);
+        }
+    }
+
+    throw new Error("AI_UNAVAILABLE");
+}

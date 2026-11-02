@@ -53,7 +53,7 @@ export const createChat = async (
         // Verify document ownership and readiness
         const count = await Document.countDocuments({
             _id: { $in: uniqueIds },
-            ownerId: req.user._id,
+            ownerId: req.userId,
             status: "ready",
         });
 
@@ -66,7 +66,7 @@ export const createChat = async (
         }
 
         const chat = await Chat.create({
-            ownerId: req.user._id,
+            ownerId: req.userId,
             documentIds: uniqueIds,
             title:
                 typeof title === "string" && title.trim()
@@ -101,7 +101,7 @@ export const getChats = async (
 ): Promise<void> => {
     try {
         const chats = await Chat.find({
-            ownerId: req.user._id,
+            ownerId: req.userId,
         }).sort({
             pinned: -1,
             updatedAt: -1,
@@ -148,7 +148,7 @@ export const getChatMessages = async (
         // Verify chat ownership
         const chat = await Chat.findOne({
             _id: id,
-            ownerId: req.user._id,
+            ownerId: req.userId,
         });
 
         if (!chat) {
@@ -161,7 +161,7 @@ export const getChatMessages = async (
 
         const messages = await Message.find({
             chatId: chat._id,
-            ownerId: req.user._id,
+            ownerId: req.userId,
         }).sort({ createdAt: 1 });
 
         // Collect unique cited document IDs
@@ -178,7 +178,7 @@ export const getChatMessages = async (
         // Fetch document names
         const docs = await Document.find({
             _id: { $in: docIds },
-            ownerId: req.user._id,
+            ownerId: req.userId,
         }).select("originalFileName");
 
         const names = new Map(
@@ -254,7 +254,7 @@ export const sendMessage = async (
         }
 
         const question = content.trim();
-        const userId = req.user._id;
+        const userId = req.userId;
 
         // 1. Verify chat ownership
         const chat = await Chat.findOne({
@@ -301,7 +301,7 @@ export const sendMessage = async (
         // 4. Generate AI answer using RAG
         const result = await answerQuestion(
             question,
-            userId.toString(),
+            userId as string,
             docs.map((doc) => doc._id),
             history
         );
