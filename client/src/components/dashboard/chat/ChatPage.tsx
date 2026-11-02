@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -14,7 +13,18 @@ import {
   ChevronRight,
   Sparkles,
   PanelRight,
+  Loader2,
+  FileCheck,
 } from "lucide-react";
+import { createChat, getChatMessages, getChats, sendChatMessage } from "@/lib/api/chat";
+import { toast } from "sonner";
+import { Message } from "@/types/chat";
+
+interface Citation {
+  chunkId: string;
+  documentName: string;
+  pageNumber: number;
+}
 
 const HISTORY = [
   "Leave policy review",
@@ -61,56 +71,218 @@ function Cite({ n }: { n: number }) {
 
 export default function ChatPage() {
   const [documents, setDocuments] = useState<DocItem[]>([]);
-  const [activeChat, setActiveChat] = useState(0);
-  const [tab, setTab] = useState<"cards" | "viewer">("cards");
-  const [sourceIdx, setSourceIdx] = useState(0);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [chats, setChats] = useState<any[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
   const [question, setQuestion] = useState("");
+  const [selectedCitation, setSelectedCitation] = useState<any | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [creatingChat, setCreatingChat] = useState(false);
+
 
   useEffect(() => {
-    const fetchDocuments = async () => {
+    const loadInitialData = async () => {
       try {
-        const res = await listDocuments();
-        setDocuments(res.documents);
-      } catch (error) {
-        console.error("Failed to fetch documents:", error);
-      }
-    };
+        setLoading(true);
 
-    fetchDocuments();
+        //fetch documents
+        const [documentRsult, chatResult] = await Promise.all([
+          listDocuments(),
+          getChats()
+        ]);
+
+        setDocuments(documentRsult.documents);
+        setChats(chatResult);
+
+      } catch (err) {
+        console.log(err);
+      }
+      finally {
+        setLoading(false);
+      }
+    }
+
+    loadInitialData();
   }, []);
 
-  const source = SOURCES[sourceIdx];
+  // select and deselect documents
+  const toggleDocument = (documentId: string) => {
+    setSelectedDocIds((prev) => {
+      if (prev.includes(documentId)) {
+        return prev.filter((id) => id !== documentId);
+      } else {
+        return [...prev, documentId];
+      }
+    })
+  }
+
+  // create new chat
+  const handleCreateChat = async () => {
+    if (selectedDocIds.length === 0) {
+      toast.error("Please select at least one document to create a chat.");
+      return;
+    }
+
+    try {
+      setCreatingChat(true);
+
+      const newChat = await createChat(selectedDocIds);
+
+      setChats((previous) => [
+        newChat,
+        ...previous.filter((chat) => chat.id !== newChat.id),
+      ]);
+
+      setActiveChatId(newChat.id);
+
+      setMessages([]);
+      setSelectedCitation(null);
+
+      setMenuOpen(false);
+    } catch (err) {
+      console.log(err);
+      toast.error("Unable to create chat.");
+    } finally {
+      setCreatingChat(false);
+    }
+  }
+
+  // opena an existing chat
+  const handleOpenChat = async (chatId: string) => {
+    try {
+      setActiveChatId(chatId);
+      setLoadingMessages(true);
+      setSelectedCitation(null);
+      setMenuOpen(false);
+
+      const chatMessages = await getChatMessages(chatId);
+      setMessages(chatMessages);
+
+      const selectedChat = chats.find((chat) => chat.id === chatId);
+      if (selectedChat) {
+        setSelectedDocIds(selectedChat.documentIds);
+      }
+      setMenuOpen(false);
+    } catch (err) {
+      console.log(err);
+      toast.error("Unable to open chat.");
+    } finally {
+      setLoadingMessages(false);
+    }
+  }
+
+  // start a new conversation
+  const handleNewConversation = () => {
+    setActiveChatId(null);
+    setMessages([]);
+    setQuestion("");
+    setSelectedCitation(null);
+    setMenuOpen(false);
+  }
+
+  // send message to gemini
+  const handleSendMessage = async () => {
+    const content = question.trim();
+
+    if (!content || sending) return;
+
+    try {
+      setSending(true);
+
+      let chatId = activeChatId;
+
+      // If no chat exists yet, create one from selected documents
+      if (!chatId) {
+        if (selectedDocIds.length === 0) {
+          toast.error("Select documents before asking a question.");
+          return;
+        }
+
+        const newChat = await createChat(selectedDocIds);
+
+        chatId = newChat.id;
+
+        setActiveChatId(chatId);
+
+        setChats((previous) => [newChat, ...previous]);
+      }
+
+      // Show user's question immediately
+      const userMessage: Message = {
+        id: `temp-${Date.now()}`,
+        role: "user",
+        content,
+      };
+
+      setMessages((previous) => [...previous, userMessage]);
+      setQuestion("");
+
+      // Send question to the backend RAG pipeline
+      const assistantMessage = await sendChatMessage(chatId, content);
+
+      // Display the real Gemini response and citations
+      setMessages((previous) => [
+        ...previous,
+        assistantMessage,
+      ]);
+
+      // Select the first citation automatically
+      if (assistantMessage.citations?.length) {
+        setSelectedCitation(assistantMessage.citations[0]);
+      }
+
+      // Refresh chat list to update ordering and title
+      const updatedChats = await getChats();
+      setChats(updatedChats);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to send message"
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // get all citations
+  const allCitations = messages.flatMap((message) => message.citations || []);
+
+  const activeChat = chats.find((chat) => chat.id === activeChatId);
+
+  const readyDocuments = documents.filter((document) => document.status === "ready");
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[radial-gradient(ellipse_at_top_left,#713619_0%,#1a0a0a_45%,#361321_100%)] p-3 text-white sm:p-4 lg:p-5">
 
-      <section className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_320px]">
+      <section className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-3 lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_320px]">
 
-        {/* SIDEBAR */}
+        {/* =====================================
+            LEFT SIDEBAR
+        ===================================== */}
 
-        <aside className={`${glass} flex min-w-0 flex-col gap-4 p-3.5 sm:p-4 lg:row-span-2 xl:row-span-1`}>
+        <aside className={`${glass} flex min-w-0 flex-col gap-4 p-3.5 sm:p-4`}>
 
-          <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-bold tracking-tight sm:text-xl">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold">
               DocuMind <span className="text-amber-400">AI</span>
             </h1>
 
             <button
-              onClick={() => setMenuOpen((o) => !o)}
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              aria-expanded={menuOpen}
-              className="rounded-lg border border-white/10 p-2 text-white/80 transition hover:bg-white/10 lg:hidden"
+              onClick={() => setMenuOpen((previous) => !previous)}
+              className="rounded-lg border border-white/10 p-2 lg:hidden"
+              aria-label="Toggle sidebar"
             >
               {menuOpen ? <X size={17} /> : <Menu size={17} />}
             </button>
           </div>
 
+          {/* NEW CHAT BUTTON */}
+
           <button
-            onClick={() => {
-              setActiveChat(0);
-              setQuestion("");
-            }}
+            onClick={handleNewConversation}
             className={`${gradBtn} flex items-center justify-center gap-2 px-3 py-2.5 text-sm`}
           >
             <Plus size={16} />
@@ -119,84 +291,137 @@ export default function ChatPage() {
 
           <div className={`${menuOpen ? "flex" : "hidden"} flex-col gap-5 lg:flex`}>
 
-            {/* DOCUMENTS */}
+            {/* DOCUMENT SELECTION */}
 
             <div>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">
-                In scope · {documents.length} documents
-              </p>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-white/45">
+                  Select documents
+                </p>
 
-              <div className="flex flex-wrap gap-1.5">
-                {documents.map((doc) => (
-                  <span
-                    key={doc.id}
-                    className="max-w-full truncate rounded-md border border-amber-400/30 bg-amber-400/5 px-2 py-1 font-mono text-[10px] text-white/75"
-                  >
-                    {doc.filename}
-                  </span>
-                ))}
-
-                {documents.length === 0 && (
-                  <p className="text-xs text-white/40">
-                    No documents selected.
-                  </p>
-                )}
+                <span className="text-[10px] text-amber-300">
+                  {selectedDocIds.length} selected
+                </span>
               </div>
 
-              <p className="mt-2 text-[11px] leading-relaxed text-white/40">
-                Only these documents are searched.
-              </p>
+              {loading ? (
+                <Loader2 className="animate-spin text-amber-300" size={18} />
+              ) : (
+                <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+
+                  {documents.map((doc) => {
+                    const documentId = doc.id;
+                    const isReady = doc.status === "ready";
+                    const isSelected = selectedDocIds.includes(documentId);
+
+                    return (
+                      <label
+                        key={documentId}
+                        className={`flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border p-2 transition ${isSelected
+                            ? "border-amber-400/40 bg-amber-400/10"
+                            : "border-white/10 bg-white/[0.025] hover:bg-white/5"
+                          } ${!isReady ? "cursor-not-allowed opacity-50" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={!isReady}
+                          onChange={() => toggleDocument(documentId)}
+                          className="accent-amber-400"
+                        />
+
+                        <FileText size={15} className="shrink-0 text-amber-300" />
+
+                        <span className="min-w-0 flex-1 truncate text-xs">
+                          {doc.filename}
+                        </span>
+
+                        {!isReady && (
+                          <span className="text-[9px] text-white/40">
+                            {doc.status}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+
+                  {documents.length === 0 && (
+                    <p className="text-xs text-white/40">
+                      No uploaded documents found.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* CREATE CHAT USING SELECTED FILES */}
+
+              <button
+                onClick={handleCreateChat}
+                disabled={
+                  selectedDocIds.length === 0 || creatingChat
+                }
+                className={`${gradBtn} mt-3 flex w-full items-center justify-center gap-2 px-3 py-2 text-xs disabled:opacity-40`}
+              >
+                {creatingChat && (
+                  <Loader2 size={14} className="animate-spin" />
+                )}
+
+                Start chat with selected files
+              </button>
             </div>
 
             {/* CHAT HISTORY */}
 
             <div>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">
-                Today
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/45">
+                Recent conversations
               </p>
 
-              <ul className="flex flex-col gap-1">
-                {HISTORY.map((title, i) => (
-                  <li key={title}>
-                    <button
-                      onClick={() => {
-                        setActiveChat(i);
-                        setMenuOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition ${
-                        activeChat === i
-                          ? "bg-white/10 font-semibold text-white"
-                          : "text-white/55 hover:bg-white/5 hover:text-white"
-                      }`}
-                    >
-                      <MessageSquare
-                        size={14}
-                        className="shrink-0"
-                      />
-                      <span className="truncate">{title}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+              <div className="flex flex-col gap-1">
 
+                {chats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    onClick={() => handleOpenChat(chat.id)}
+                    className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition ${activeChatId === chat.id
+                        ? "bg-white/10 text-white"
+                        : "text-white/55 hover:bg-white/5"
+                      }`}
+                  >
+                    <MessageSquare size={14} className="shrink-0" />
+
+                    <span className="truncate">
+                      {chat.title}
+                    </span>
+                  </button>
+                ))}
+
+                {chats.length === 0 && (
+                  <p className="text-xs text-white/40">
+                    No conversations yet.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </aside>
 
-        {/* CHAT AREA */}
+        {/* =====================================
+            MAIN CHAT AREA
+        ===================================== */}
 
         <div className="flex min-w-0 flex-col gap-3 lg:min-h-[calc(100vh-2.5rem)]">
 
-          {/* HEADER */}
+          {/* CHAT HEADER */}
 
-          <div className="flex min-w-0 items-center justify-between gap-2 py-1">
+          <div className="flex items-center justify-between gap-2 py-2">
             <div className="min-w-0">
-              <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-300/70">
+              <p className="text-[10px] uppercase tracking-wider text-amber-300/70">
                 Document conversation
               </p>
 
-              <h2 className="truncate text-lg font-bold tracking-tight sm:text-xl">
-                {HISTORY[activeChat]}
+              <h2 className="truncate text-xl font-bold">
+                {activeChat?.title ?? "New conversation"}
               </h2>
             </div>
 
@@ -206,87 +431,127 @@ export default function ChatPage() {
             </span>
           </div>
 
-          {/* USER MESSAGE */}
+          {/* ACTIVE DOCUMENTS */}
 
-          <div className="flex justify-end">
-            <div className="max-w-[90%] rounded-xl rounded-br-sm bg-[#bd3864] px-3.5 py-2.5 text-xs leading-relaxed text-white shadow-lg sm:max-w-[80%] sm:text-sm">
-              How many paid leave days can be carried over, and do contractors get the same?
+          {activeChatId && (
+            <div className="flex flex-wrap gap-2">
+              {selectedDocIds.map((id) => {
+                const doc = documents.find((item) => item.id === id);
+
+                return (
+                  <span
+                    key={id}
+                    className="flex items-center gap-1 rounded-md border border-amber-400/20 bg-amber-400/5 px-2 py-1 text-[10px] text-amber-200"
+                  >
+                    <FileText size={11} />
+                    {doc?.filename ?? "Document"}
+                  </span>
+                );
+              })}
             </div>
-          </div>
+          )}
 
-          {/* AI ANSWER */}
+          {/* MESSAGE HISTORY */}
 
-          <div className={`${glass} bg-black/15 p-3.5 sm:p-4`}>
+          <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
 
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-amber-400/15 text-amber-300">
-                <Sparkles size={15} />
+            {loadingMessages && (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-white/50">
+                <Loader2 className="animate-spin" size={18} />
+                Loading messages...
               </div>
+            )}
 
-              <span className="text-xs font-semibold text-white/80">
-                DocuMind AI
-              </span>
+            {!loadingMessages && messages.length === 0 && (
+              <div className={`${glass} flex flex-1 flex-col items-center justify-center p-8 text-center`}>
+                <div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-amber-400/10 text-amber-300">
+                  <Sparkles size={24} />
+                </div>
 
-              <span className="rounded-full bg-teal-400/10 px-2 py-0.5 text-[9px] font-semibold text-teal-300">
-                Answer generated
-              </span>
-            </div>
+                <h3 className="text-lg font-bold">
+                  Ask your documents anything
+                </h3>
 
-            <h3 className="text-base font-bold leading-snug tracking-tight sm:text-lg">
-              Up to 10 days can be carried over.
-            </h3>
-
-            <p className="mt-2 text-xs leading-6 text-white/75 sm:text-sm">
-              They must be used before 31 March
-              <Cite n={1} />. Contractors are not covered and follow their own agreement
-              <Cite n={2} />.
-            </p>
-
-            {/* CONFIDENCE */}
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <div className="h-1.5 min-w-[100px] flex-1 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full w-[88%] rounded-full bg-teal-400" />
+                <p className="mt-2 max-w-sm text-xs leading-6 text-white/45">
+                  Select one or more documents from the sidebar,
+                  start a conversation and ask questions about their content.
+                </p>
               </div>
+            )}
 
-              <span className="text-[10px] font-semibold text-teal-300">
-                Strong evidence · 2 sources
-              </span>
-            </div>
+            {/* RENDER REAL MESSAGES */}
 
-            {/* CITATIONS */}
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[
-                "1 · leave-policy.pdf · p.4",
-                "2 · contractor-terms.docx · p.2",
-              ].map((c) => (
-                <button
-                  key={c}
-                  className="max-w-full truncate rounded-md border border-amber-400/25 bg-amber-400/5 px-2 py-1.5 text-left font-mono text-[9px] text-amber-200/80 transition hover:bg-amber-400/10 sm:text-[10px]"
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={
+                  message.role === "user"
+                    ? "flex justify-end"
+                    : "flex justify-start"
+                }
+              >
+                <div
+                  className={
+                    message.role === "user"
+                      ? "max-w-[90%] rounded-xl rounded-br-sm bg-[#bd3864] px-4 py-3 text-sm"
+                      : `${glass} max-w-full p-4 sm:max-w-[95%]`
+                  }
                 >
-                  {c}
-                </button>
-              ))}
-            </div>
+                  {message.role === "assistant" && (
+                    <div className="mb-3 flex items-center gap-2">
+                      <Sparkles size={15} className="text-amber-300" />
+                      <span className="text-xs font-semibold">
+                        DocuMind AI
+                      </span>
+
+                      {message.trustLevel && (
+                        <span className="text-[10px] text-teal-300">
+                          {message.trustLevel === "strong"
+                            ? "Strong evidence"
+                            : message.trustLevel === "partial"
+                              ? "Partial evidence"
+                              : "Not found"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="whitespace-pre-wrap text-sm leading-7">
+                    {message.content}
+                  </p>
+
+                  {/* REAL CITATIONS */}
+
+                  {message.role === "assistant" &&
+                    message.citations &&
+                    message.citations.length > 0 && (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {message.citations.map((citation: Citation, index: number) => (
+                          <button
+                            key={citation.chunkId}
+                            onClick={() => setSelectedCitation(citation)}
+                            className="rounded-md border border-amber-400/25 bg-amber-400/5 px-2 py-1.5 text-left text-[10px] text-amber-200 hover:bg-amber-400/10"
+                          >
+                            <FileCheck size={11} className="mr-1 inline" />
+                            {index + 1}. {citation.documentName} · p.
+                            {citation.pageNumber}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                </div>
+              </div>
+            ))}
+
+            {/* AI THINKING INDICATOR */}
+
+            {sending && (
+              <div className={`${glass} flex items-center gap-2 self-start px-4 py-3 text-xs text-white/60`}>
+                <Loader2 size={15} className="animate-spin text-amber-300" />
+                DocuMind AI is thinking...
+              </div>
+            )}
           </div>
-
-          {/* NOT FOUND */}
-
-          <div className="rounded-xl border border-white/10 bg-black/20 p-3.5 sm:p-4">
-            <div className="flex items-center gap-2">
-              <FileText size={15} className="text-amber-300" />
-              <h3 className="text-xs font-semibold">
-                Not found in selected documents
-              </h3>
-            </div>
-
-            <p className="mt-1.5 text-xs leading-relaxed text-white/50">
-              Closest passage: paternity leave, page 6. Try adding the HR handbook.
-            </p>
-          </div>
-
-          <div className="hidden flex-1 lg:block" />
 
           {/* MESSAGE INPUT */}
 
@@ -294,136 +559,128 @@ export default function ChatPage() {
             <textarea
               rows={2}
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void handleSendMessage();
+                }
+              }}
               placeholder="Ask anything about your documents..."
-              className="max-h-32 min-h-12 w-full resize-y bg-transparent text-xs leading-relaxed text-white placeholder:text-white/35 focus:outline-none sm:text-sm"
+              className="max-h-32 min-h-12 w-full resize-y bg-transparent text-sm text-white placeholder:text-white/35 focus:outline-none"
             />
 
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2">
-              <span className="text-[9px] text-white/40 sm:text-[10px]">
-                /summarize · /compare · /quiz
+            <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
+
+              <span className="text-[10px] text-white/40">
+                Enter to send · Shift + Enter for new line
               </span>
 
               <button
-                disabled={!question.trim()}
-                onClick={() => setQuestion("")}
-                className={`${gradBtn} flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40`}
+                onClick={() => void handleSendMessage()}
+                disabled={!question.trim() || sending || loadingMessages}
+                className={`${gradBtn} flex items-center gap-2 px-4 py-2 text-xs disabled:opacity-40`}
               >
-                Send
+                {sending ? "Sending..." : "Send"}
                 <Send size={13} />
               </button>
             </div>
           </div>
         </div>
 
-        {/* SOURCES PANEL */}
+        {/* =====================================
+            RIGHT SOURCE PANEL
+        ===================================== */}
 
-        <aside className={`${glass} min-w-0 p-3.5 sm:p-4 lg:col-start-2 xl:col-start-auto xl:min-h-[calc(100vh-2.5rem)]`}>
+        <aside className={`${glass} min-w-0 p-3.5 sm:p-4 xl:min-h-[calc(100vh-2.5rem)]`}>
 
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-bold">
                 Sources & References
               </h3>
-              <p className="mt-0.5 text-[10px] text-white/40">
-                Supporting evidence for this answer
+
+              <p className="mt-1 text-[10px] text-white/40">
+                Evidence from your documents
               </p>
             </div>
 
-            <PanelRight size={17} className="text-white/45" />
+            <FileText size={18} className="text-white/45" />
           </div>
 
-          {/* TABS */}
+          <div className="mt-4 flex flex-col gap-3">
 
-          <div className="mt-3 flex gap-1 rounded-lg bg-black/20 p-1">
-            {(["cards", "viewer"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition ${
-                  tab === t
-                    ? "bg-white/15 text-white"
-                    : "text-white/45 hover:text-white"
-                }`}
-              >
-                {t === "cards" ? "Source cards" : "Viewer"}
-              </button>
-            ))}
-          </div>
+            {selectedCitation ? (
+              <article className="rounded-xl bg-[#f7f1e3] p-4 text-[#1b1208]">
 
-          {tab === "cards" ? (
-            <>
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/45">
-                  Source {source.id}
-                </p>
+                <div className="flex items-center gap-2 text-[10px] text-black/50">
+                  <FileText size={13} />
 
-                <span className="rounded-full bg-teal-400/10 px-2 py-1 text-[9px] font-semibold text-teal-300">
-                  {(source.relevance * 100).toFixed(0)}% relevance
-                </span>
-              </div>
-
-              {/* SOURCE CARD */}
-
-              <article className="mt-3 rounded-xl bg-[#f7f1e3] p-3.5 text-[#1b1208] sm:p-4">
-                <div className="flex items-center gap-2 text-[9px] font-medium uppercase tracking-wide text-black/45">
-                  <FileText size={12} />
                   <span className="break-all">
-                    {source.file} · Page {source.page}
+                    {selectedCitation.documentName}
                   </span>
                 </div>
 
-                <h4 className="mt-3 text-sm font-bold leading-snug sm:text-base">
-                  {source.title}
+                <h4 className="mt-3 text-sm font-bold">
+                  Page {selectedCitation.pageNumber}
                 </h4>
 
-                <p className="mt-2 text-xs leading-6 text-black/75 sm:text-sm">
-                  {source.before}
-                  <Mark>{source.hl1}</Mark>
-                  {source.mid}
-                  <Mark>{source.hl2}</Mark>
-                  {source.after}
+                <p className="mt-3 text-xs leading-6">
+                  {selectedCitation.excerpt}
                 </p>
+
+                <div className="mt-4 border-t border-black/10 pt-3 text-[10px] text-black/50">
+                  Relevance score:{" "}
+                  {(selectedCitation.relevanceScore * 100).toFixed(1)}%
+                </div>
               </article>
+            ) : (
+              <div className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-white/15 p-5 text-center">
 
-              {/* SOURCE NAVIGATION */}
+                <FileText size={25} className="text-white/30" />
 
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => setSourceIdx((i) => Math.max(0, i - 1))}
-                  disabled={sourceIdx === 0}
-                  className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs transition hover:bg-white/10 disabled:opacity-30"
-                >
-                  <ChevronLeft size={14} />
-                  Previous
-                </button>
+                <p className="mt-2 text-xs font-semibold text-white/70">
+                  No source selected
+                </p>
 
-                <button
-                  onClick={() => setSourceIdx((i) => Math.min(SOURCES.length - 1, i + 1))}
-                  disabled={sourceIdx === SOURCES.length - 1}
-                  className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-xs transition hover:bg-white/10 disabled:opacity-30"
-                >
-                  Next
-                  <ChevronRight size={14} />
-                </button>
+                <p className="mt-1 text-[10px] text-white/40">
+                  Ask a question to see supporting citations here.
+                </p>
               </div>
-            </>
-          ) : (
-            <div className="mt-4 flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-white/15 p-5 text-center">
-              <FileText size={25} className="text-white/30" />
+            )}
 
-              <p className="mt-2 text-xs font-semibold text-white/70">
-                PDF Viewer
-              </p>
+            {/* ALL CITATIONS FROM CURRENT CONVERSATION */}
 
-              <p className="mt-1 text-[10px] text-white/40">
-                Document preview will appear here.
-              </p>
-            </div>
-          )}
+            {allCitations.length > 0 && (
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/45">
+                  All sources · {allCitations.length}
+                </p>
+
+                {allCitations.map((citation, index) => (
+                  <button
+                    key={`${citation.chunkId}-${index}`}
+                    onClick={() => setSelectedCitation(citation)}
+                    className="mb-2 flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.025] p-2 text-left transition hover:bg-white/10"
+                  >
+                    <FileText size={14} className="shrink-0 text-amber-300" />
+
+                    <span className="min-w-0 flex-1 truncate text-[10px]">
+                      {citation.documentName}
+                      <span className="block text-white/40">
+                        Page {citation.pageNumber}
+                      </span>
+                    </span>
+
+                    <ChevronRight size={13} className="text-white/40" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </aside>
-
       </section>
     </main>
   );
 }
+
