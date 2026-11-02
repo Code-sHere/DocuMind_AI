@@ -5,7 +5,7 @@ const DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS ?? 768);
 
 // Created on first use, so .env is already loaded by then
 let client: GoogleGenAI | null = null;
-const getClient = () => {
+export const getClient = () => {
     if (!client) {
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) throw new Error("GEMINI_API_KEY is not defined");
