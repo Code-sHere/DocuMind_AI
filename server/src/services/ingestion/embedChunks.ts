@@ -1,3 +1,4 @@
+
 import type { Types } from "mongoose";
 import Chunk from "../../models/Chunks.model.js";
 import { embedTexts, EMBEDDING_MODEL } from "../ai/gemini.js";
@@ -5,52 +6,88 @@ import { embedTexts, EMBEDDING_MODEL } from "../ai/gemini.js";
 const BATCH_SIZE = 50;
 const MAX_TRIES = 4;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
-// Retries temporary failures (rate limit, network) with waits of 2s, 4s, 8s
-const embedWithRetry = async (texts: string[]): Promise<number[][]> => {
-    for (let attempt = 1; ; attempt++) {
-        try {
-            return await embedTexts(texts);
-        } catch (err) {
-            if (attempt >= MAX_TRIES) throw err;
-            await sleep(2000 * 2 ** (attempt - 1));
-        }
-    }
+// Identify chunks without a usable embedding
+const missingEmbeddingQuery = {
+  $or: [
+    { embeddingVector: { $exists: false } },
+    { embeddingVector: null },
+    { embeddingVector: { $size: 0 } },
+  ],
 };
 
-// Safe to run again: it only embeds chunks that do not have a vector yet,
-// so a retry never creates duplicates and never repeats finished work.
+// Retry temporary Gemini failures
+const embedWithRetry = async (
+  texts: string[]
+): Promise<number[][]> => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await embedTexts(texts);
+    } catch (error) {
+      if (attempt >= MAX_TRIES) {
+        throw error;
+      }
+
+      await sleep(2000 * 2 ** (attempt - 1));
+    }
+  }
+};
+
+// Embed only chunks whose embeddings are missing.
+// Already completed chunks are not embedded again.
 export const embedDocumentChunks = async (
-    documentId: Types.ObjectId
+  documentId: Types.ObjectId
 ): Promise<number> => {
-    const chunks = await Chunk.find({
-        documentId,
-        embeddingVector: { $exists: false },
-    })
-        .sort({ chunkIndex: 1 })
-        .select("_id text");
 
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-        const batch = chunks.slice(i, i + BATCH_SIZE);
-        const vectors = await embedWithRetry(batch.map((c) => c.text));
+  const chunks = await Chunk.find({
+    documentId,
+    ...missingEmbeddingQuery,
+  })
+    .sort({ chunkIndex: 1 })
+    .select("_id text");
 
-        await Chunk.bulkWrite(
-            batch.map((chunk, j) => ({
-                updateOne: {
-                    filter: { _id: chunk._id },
-                    update: {
-                        $set: {
-                            embeddingVector: vectors[j],
-                            embeddingModel: EMBEDDING_MODEL,
-                        },
-                    },
-                },
-            }))
-        );
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
 
-        await sleep(500); // small pause between batches to respect rate limits
+    const vectors = await embedWithRetry(
+      batch.map((chunk) => chunk.text)
+    );
+
+    // Validate the embedding response before saving
+    if (
+      vectors.length !== batch.length ||
+      vectors.some(
+        (vector) =>
+          !Array.isArray(vector) ||
+          vector.length === 0 ||
+          vector.some((value) => !Number.isFinite(value))
+      )
+    ) {
+      throw new Error("INVALID_EMBEDDING_RESPONSE");
     }
 
-    return chunks.length;
+    await Chunk.bulkWrite(
+      batch.map((chunk, index) => ({
+        updateOne: {
+          filter: {
+            _id: chunk._id,
+            ...missingEmbeddingQuery,
+          },
+          update: {
+            $set: {
+              embeddingVector: vectors[index],
+              embeddingModel: EMBEDDING_MODEL,
+            },
+          },
+        },
+      }))
+    );
+
+    // Small delay between batches
+    await sleep(500);
+  }
+
+  return chunks.length;
 };

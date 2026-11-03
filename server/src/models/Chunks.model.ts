@@ -9,8 +9,8 @@ interface IChunk {
     sectionTitle?: string;
     text: string;
     tokenCount: number;
-    embeddingVector: number[];
-    embeddingModel: string;
+    embeddingVector?: number[];
+    embeddingModel?: string;
     createdAt: Date;
 }
 

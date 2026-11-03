@@ -592,7 +592,7 @@ export default function ChatPage() {
             RIGHT SOURCE PANEL
         ===================================== */}
 
-        <aside className={`${glass} min-w-0 p-3.5 sm:p-4 xl:min-h-[calc(100vh-2.5rem)]`}>
+        <aside className={`${glass} hidden xl:block min-w-0 p-3.5 xl:min-h-[calc(100vh-2.5rem)]`}>
 
           <div className="flex items-center justify-between">
             <div>

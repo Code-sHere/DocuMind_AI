@@ -81,6 +81,7 @@ export const uploadDocumnets = async (req: Request, res: Response) => {
 
                 doc.extractedText = text;
                 doc.chunkCount = chunks.length;
+                doc.pageCount = pages.length;
                 doc.status = "ready"; // ready only after embeddings are saved
                 await doc.save();
             } catch (e) {
@@ -153,21 +154,422 @@ export const deleteDocument = async (req: Request, res: Response): Promise<void>
 
 export const listDocuments = async (req: Request, res: Response): Promise<void> => {
     try {
-        const docs = await Document.find({ ownerId: req.userId }).sort({ createdAt: -1 }).select("originalFileName fileSize status chunkCount createdAt");
+
+        const userId = req.userId;
+
+        if (!userId) {
+            res.status(400).json({ success: false, message: "User not found" });
+            return;
+        }
+
+        // Read query parameters
+        const q = String(req.query.q ?? "").trim();
+        const status = String(req.query.status ?? "all");
+        const sort = String(req.query.sort ?? "newest");
+
+        // validate pagination
+        const page = Math.max(
+            1,
+            Number.parseInt(String(req.query.page ?? "1"), 10) || 1
+        );
+        const limit = Math.min(
+            100,
+            Math.max(
+                1,
+                Number.parseInt(String(req.query.limit ?? "12"), 10) || 12
+            )
+        );
+
+        // validate status 
+        const allowedStatus = ["all", "ready", "processing", "failed"];
+
+        if (!allowedStatus.includes(status)) {
+            res.status(400).json({ success: false, message: "Invalid status" });
+            return;
+        }
+
+        // validate sorting
+        const sortOptions: Record<string, Record<string, 1 | -1>> = {
+            newest: { createdAt: -1 },
+            oldest: { createdAt: 1 },
+            name: { displayName: -1 },
+            size: { fileSize: 1 }
+        }
+
+        if (!sortOptions[sort]) {
+            res.status(400).json({ success: false, message: "Invalid sort" });
+            return;
+        }
+
+        // build mongodb query
+        const filter: Record<string, unknown> = {
+            ownerId: userId,
+        };
+
+        if (status !== "all") {
+            filter.status = status;
+        }
+
+        // escape regex character so search is literal
+        if (q) {
+            const escapedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            filter.displayName = {
+                $regex: escapedQuery,
+                $options: "i"
+            };
+        }
+
+        // count matching documents
+        const total = await Document.countDocuments(filter);
+
+        // fetch current page
+        const documents = await Document.find(filter)
+            .select(
+                "displayName originalFileName mimeType fileSize status errorCode chunkCount pageCount createdAt"
+            )
+            .sort(sortOptions[sort])
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .lean();
+
 
         res.status(200).json({
             success: true,
-            documents: docs.map((d) => ({
-                id: d._id,
-                filename: d.originalFileName,
-                size: d.fileSize,
-                status: d.status,
-                chunkCount: d.chunkCount,
-                createdAt: d.createdAt
-            }))
-        })
+            documents: documents.map((doc) => ({
+                id: doc._id.toString(),
+                displayName: doc.displayName,
+                mimeType: doc.mimeType,
+                fileSize: doc.fileSize,
+                status: doc.status,
+                errorCode: doc.errorCode ?? null,
+                chunkCount: doc.chunkCount ?? 0,
+                pageCount: doc.pageCount ?? 0,
+                createdAt: doc.createdAt
+            })),
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit)
+            }
+        });
     } catch (error) {
         console.error("listDocuments failed:", error);
         res.status(500).json({ success: false, message: "Unable to list documents" });
     }
 }
+
+
+// GET /api/documents/:id
+// Fetch one document belonging to the logged-in user.
+
+export const getDocumentById = async (
+    req: Request,
+    res: Response
+): Promise<void> => {
+    try {
+        const id = req.params.id;
+
+        if (!mongoose.isValidObjectId(id)) {
+            res.status(400).json({
+                success: false,
+                message: "INVALID_DOCUMENT_ID",
+            });
+            return;
+        }
+
+        const doc = await Document.findOne({
+            _id: id,
+            ownerId: req.userId,
+        }).select(
+            "displayName originalFileName mimeType fileSize status errorCode chunkCount pageCount createdAt"
+        );
+
+        if (!doc) {
+            res.status(404).json({
+                success: false,
+                message: "DOCUMENT_NOT_FOUND",
+            });
+            return;
+        }
+
+        res.status(200).json({
+            success: true,
+            document: {
+                id: doc._id.toString(),
+                displayName: doc.displayName,
+                originalFileName: doc.originalFileName,
+                mimeType: doc.mimeType,
+                size: doc.fileSize,
+                status: doc.status,
+                errorCode: doc.errorCode ?? null,
+                chunkCount: doc.chunkCount ?? 0,
+                pageCount: doc.pageCount ?? 0,
+                createdAt: doc.createdAt,
+            },
+        });
+    } catch (error) {
+        console.error("getDocumentById failed:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to fetch document",
+        });
+    }
+};
+
+export const renameDocument = async (req: Request, res: Response): Promise<void> => {
+    try {
+
+        const id = req.params.id;
+
+        if (!mongoose.isValidObjectId(id)) {
+            res.status(400).json({ success: false, message: "Invalid document id" });
+            return;
+        }
+
+        const { displayName } = req.body;
+
+        if (
+            typeof displayName !== "string" ||
+            displayName.trim().length < 1 ||
+            displayName.trim().length > 100
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Display name must contain 1 to 100 characters",
+            });
+            return;
+        }
+
+        const doc = await Document.findOneAndUpdate({
+            _id: id,
+            ownerId: req.userId,
+        }, {
+            $set: {
+                displayName: displayName.trim(),
+            }
+        }, {
+            new: true,
+            runValidators: true,
+        }).select(
+            "displayName originalFileName mimeType fileSize status errorCode chunkCount pageCount createdAt"
+        );
+
+        if (!doc) {
+            res.status(404).json({ success: false, message: "Document not found" });
+            return;
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Document renamed successfully",
+            document: {
+                id: doc._id.toString(),
+                displayName: doc.displayName,
+                originalFileName: doc.originalFileName,
+            }
+        })
+
+    } catch (error) {
+        console.error("renameDocument failed:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Unable to rename document",
+        });
+    }
+}
+
+
+// this code suggest by ai 😜
+export const retryDocument = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const id = req.params.id;
+
+    // 1. Validate document ID
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).json({
+        success: false,
+        message: "INVALID_DOCUMENT_ID",
+      });
+      return;
+    }
+
+    // 2. Find document belonging to logged-in user
+    const doc = await Document.findOne({
+      _id: id,
+      ownerId: req.userId,
+    });
+
+    if (!doc) {
+      res.status(404).json({
+        success: false,
+        message: "DOCUMENT_NOT_FOUND",
+      });
+      return;
+    }
+
+    // 3. Only failed documents can be retried
+    if (doc.status !== "failed") {
+      res.status(409).json({
+        success: false,
+        message: "DOCUMENT_NOT_FAILED",
+      });
+      return;
+    }
+
+    // 4. Empty text means extraction failed.
+    // Re-upload is required instead of embedding retry.
+    if (doc.errorCode === "EMPTY_TEXT") {
+      res.status(409).json({
+        success: false,
+        code: "REUPLOAD_REQUIRED",
+        message: "No readable text found. Please upload the document again.",
+      });
+      return;
+    }
+
+    // 5. Check whether chunks exist
+    const totalChunks = await Chunk.countDocuments({
+      documentId: doc._id,
+      ownerId: req.userId,
+    });
+
+    if (totalChunks === 0) {
+      res.status(409).json({
+        success: false,
+        code: "REUPLOAD_REQUIRED",
+        message: "No document chunks found. Please upload the document again.",
+      });
+      return;
+    }
+
+    // 6. Find chunks without embeddings
+    const missingEmbeddingQuery = {
+      $or: [
+        { embeddingVector: { $exists: false } },
+        { embeddingVector: null },
+        { embeddingVector: { $size: 0 } },
+      ],
+    };
+
+    const missingCount = await Chunk.countDocuments({
+      documentId: doc._id,
+      ownerId: req.userId,
+      ...missingEmbeddingQuery,
+    });
+
+    // Retry is only useful when some embeddings are missing
+    if (missingCount === 0) {
+      res.status(409).json({
+        success: false,
+        code: "RETRY_NOT_AVAILABLE",
+        message: "No incomplete embeddings found for this document.",
+      });
+      return;
+    }
+
+    // 7. Atomically claim this retry.
+    // Prevents two retry requests from processing the same document.
+    const claimedDocument = await Document.findOneAndUpdate(
+      {
+        _id: doc._id,
+        ownerId: req.userId,
+        status: "failed",
+      },
+      {
+        $set: { status: "processing" },
+        $unset: { errorCode: 1 },
+      },
+      { new: true }
+    );
+
+    if (!claimedDocument) {
+      res.status(409).json({
+        success: false,
+        message: "DOCUMENT_ALREADY_PROCESSING",
+      });
+      return;
+    }
+
+    try {
+      // 8. Embed only the remaining incomplete chunks
+      await embedDocumentChunks(claimedDocument._id);
+
+      // 9. Verify all chunks now have embeddings
+      const remainingMissing = await Chunk.countDocuments({
+        documentId: claimedDocument._id,
+        ownerId: req.userId,
+        ...missingEmbeddingQuery,
+      });
+
+      if (remainingMissing > 0) {
+        throw new Error("EMBEDDINGS_INCOMPLETE");
+      }
+
+      // 10. Mark document ready only after verification
+      await Document.updateOne(
+        {
+          _id: claimedDocument._id,
+          ownerId: req.userId,
+          status: "processing",
+        },
+        {
+          $set: {
+            status: "ready",
+            chunkCount: totalChunks,
+          },
+          $unset: {
+            errorCode: 1,
+          },
+        }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Document embeddings processed successfully",
+        document: {
+          id: claimedDocument._id.toString(),
+          displayName: claimedDocument.displayName,
+          status: "ready",
+          chunkCount: totalChunks,
+        },
+      });
+    } catch (error) {
+      // If embedding fails again, preserve failed status
+      const errorCode =
+        error instanceof Error
+          ? error.message.slice(0, 200)
+          : "EMBEDDING_RETRY_FAILED";
+
+      await Document.updateOne(
+        {
+          _id: claimedDocument._id,
+          ownerId: req.userId,
+        },
+        {
+          $set: {
+            status: "failed",
+            errorCode,
+          },
+        }
+      );
+
+      res.status(502).json({
+        success: false,
+        message: "Embedding retry failed. Please try again later.",
+      });
+    }
+  } catch (error) {
+    console.error("retryDocument failed:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to retry document processing",
+    });
+  }
+};
