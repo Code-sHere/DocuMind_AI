@@ -1,8 +1,22 @@
+
 import type { Types } from "mongoose";
 import { retrieveChunks } from "../../jobs/retrieve.js";
-import { generateAnswer, LLM_MODEL } from "../output/generateanswer.js";
+import {
+    classifyIntent,
+    generateAnswer,
+    LLM_MODEL,
+} from "../output/generateanswer.js";
 
-export type TrustLevel = "strong" | "partial" | "not_found";
+export type TrustLevel =
+    | "strong"
+    | "partial"
+    | "not_found"
+    | "conversation";
+
+export type ResponseType =
+    | "conversation"
+    | "document"
+    | "generation";
 
 export type AnswerCitation = {
     documentId: string;
@@ -15,6 +29,7 @@ export type AnswerCitation = {
 
 export type AnswerResult = {
     content: string;
+    responseType: ResponseType;
     trustLevel: TrustLevel;
     citations: AnswerCitation[];
     tokenUsage: { input: number; output: number };
@@ -22,10 +37,34 @@ export type AnswerResult = {
     latencyMs: number;
 };
 
-type HistoryItem = { role: "user" | "assistant"; content: string };
+type HistoryItem = {
+    role: "user" | "assistant";
+    content: string;
+};
 
-const NOT_FOUND_TEXT = "I couldn't find this in the selected documents.";
-const STRONG_SCORE = 0.75; // tune with your own test questions
+const NOT_FOUND_TEXT =
+    "I couldn't find enough relevant information in the selected documents to answer this question.";
+
+const STRONG_SCORE = 0.75;
+
+const sanitizeAnswer = (answer: string): string => {
+    return answer
+        // Remove complete internal citation references.
+        .replace(/\[chunk:[^\]]+\]/gi, "")
+        // Remove any remaining chunk:<id> references.
+        .replace(/\bchunk:[a-f\d]{12,}\b/gi, "")
+        .trim();
+};
+
+const buildConversation = (history: HistoryItem[]): string => {
+    return history
+        .slice(-10)
+        .map(
+            (message) =>
+                `${message.role}: ${message.content.slice(0, 1500)}`
+        )
+        .join("\n");
+};
 
 export const answerQuestion = async (
     question: string,
@@ -35,13 +74,56 @@ export const answerQuestion = async (
 ): Promise<AnswerResult> => {
     const started = Date.now();
 
-    // 1. Find the best passages (only from the allowed documents)
-    const chunks = await retrieveChunks(question, ownerId, documentIds);
+    const conversation = buildConversation(history);
 
-    // 2. Nothing relevant: answer without paying for an AI call
+    // 1. Detect what the user actually wants before retrieving documents.
+    const responseType = await classifyIntent(question, history);
+
+    // 2. Normal conversation does not require document retrieval.
+    if (responseType === "conversation") {
+        const prompt = `
+Conversation history:
+${conversation || "No previous conversation."}
+
+Latest user message:
+${question}
+
+Respond naturally to the user's latest message.
+
+Rules:
+- Answer general questions normally.
+- Respond naturally to greetings and acknowledgments.
+- Do not force the conversation toward uploaded documents.
+- Do not repeat previous answers unnecessarily.
+- If the user says thanks, okay, or theek, respond briefly.
+- Do not invent details about DocuMind AI's implementation.
+- Do not return document citations.
+`;
+
+        const raw = await generateAnswer(prompt, "conversation");
+
+        return {
+            content: sanitizeAnswer(raw.answer),
+            responseType: "conversation",
+            trustLevel: "conversation",
+            citations: [],
+            tokenUsage: raw.usage,
+            modelUsed: LLM_MODEL,
+            latencyMs: Date.now() - started,
+        };
+    }
+
+    // 3. Retrieve evidence only for document-related tasks.
+    const chunks = await retrieveChunks(
+        question,
+        ownerId,
+        documentIds
+    );
+
     if (chunks.length === 0) {
         return {
             content: NOT_FOUND_TEXT,
+            responseType,
             trustLevel: "not_found",
             citations: [],
             tokenUsage: { input: 0, output: 0 },
@@ -50,57 +132,92 @@ export const answerQuestion = async (
         };
     }
 
-    // 3. Build the prompt. Every passage carries its real chunk id.
+    // 4. Build evidence passages.
     const passages = chunks
-        .map((c) => `[chunk:${c.chunkId} | ${c.documentName} | page ${c.pageNumber}]\n${c.text}`)
+        .map(
+            (chunk) =>
+                `[chunk:${chunk.chunkId} | ${chunk.documentName} | page ${chunk.pageNumber}]\n${chunk.text}`
+        )
         .join("\n\n");
 
-    const conversation = history
-        .map((m) => `${m.role}: ${m.content.slice(0, 500)}`)
-        .join("\n");
+    const prompt = `
+Conversation history:
+${conversation || "No previous conversation."}
 
-    const prompt = [
-        conversation ? `Conversation so far:\n${conversation}\n` : "",
-        `Question:\n${question}\n`,
-        `Evidence passages:\n${passages}`,
-    ].join("\n");
+Latest user message:
+${question}
 
-    // 4. Ask the AI
-    const raw = await generateAnswer(prompt);
+Retrieved document evidence:
+${passages}
 
-    // 5. Validate citations on the server. The AI may only cite chunks we gave it.
-    const byId = new Map(chunks.map((c) => [c.chunkId.toString(), c]));
+Response type:
+${responseType}
+
+Instructions:
+- Answer the latest user message.
+- Use the retrieved evidence as the source of truth.
+- Use conversation history to understand follow-up references.
+- Do not treat conversation history as proof of document facts.
+- Cite only evidence that directly supports your answer.
+- Never expose internal chunk IDs in your answer.
+- If the user requests question generation, follow the exact
+  requested question count and marks distribution.
+- Before returning generated questions, verify the count.
+- Do not invent document-specific information.
+- If evidence is incomplete, answer the supported part and
+  explain what is missing.
+`;
+
+    // 5. Generate the document-grounded response.
+    const raw = await generateAnswer(prompt, responseType);
+
+    // 6. Validate every citation against retrieved chunks.
+    const byId = new Map(
+        chunks.map((chunk) => [
+            chunk.chunkId.toString(),
+            chunk,
+        ])
+    );
+
     const citations: AnswerCitation[] = [];
-    for (const rawId of new Set(raw.citedChunkIds)) {
-        const id = rawId.replace(/^chunk:/,"").trim();
 
-        const c = byId.get(id);
-         if (!c) {
-        console.warn("Unknown citation chunk ID:", rawId);
-        continue;
-    } // unknown id: throw it away
+    for (const rawId of new Set(raw.citedChunkIds)) {
+        const id = rawId.replace(/^chunk:/i, "").trim();
+        const chunk = byId.get(id);
+
+        if (!chunk) {
+            console.warn("Unknown citation chunk ID:", rawId);
+            continue;
+        }
+
         citations.push({
-            documentId: c.documentId,
-            documentName: c.documentName,
-            chunkId: c.chunkId,
-            pageNumber: c.pageNumber, // from our database, never from the AI
-            excerpt: c.text.slice(0, 300),
-            relevanceScore: c.score,
+            documentId: chunk.documentId,
+            documentName: chunk.documentName,
+            chunkId: chunk.chunkId,
+            pageNumber: chunk.pageNumber,
+            excerpt: chunk.text.slice(0, 300),
+            relevanceScore: chunk.score,
         });
     }
 
-    // 6. Trust level
+    // 7. Determine evidence confidence.
     let trustLevel: TrustLevel;
+
     if (raw.insufficientEvidence || citations.length === 0) {
         trustLevel = "not_found";
-    } else if (Math.max(...citations.map((c) => c.relevanceScore)) >= STRONG_SCORE) {
+    } else if (
+        Math.max(
+            ...citations.map((citation) => citation.relevanceScore)
+        ) >= STRONG_SCORE
+    ) {
         trustLevel = "strong";
     } else {
         trustLevel = "partial";
     }
 
     return {
-        content: raw.answer,
+        content: sanitizeAnswer(raw.answer),
+        responseType,
         trustLevel,
         citations: trustLevel === "not_found" ? [] : citations,
         tokenUsage: raw.usage,
@@ -108,4 +225,3 @@ export const answerQuestion = async (
         latencyMs: Date.now() - started,
     };
 };
-

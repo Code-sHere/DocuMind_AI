@@ -17,15 +17,19 @@ export const extractText = async (
         try {
             const result = await parser.getText();
 
-            const pages = (result.pages ?? []).map((p) => ({
-                pageNumber: p.num,
-                text: p.text,
-            }));
+            const pages: ExtractedPage[] = result.pages.map(
+                (page, index) => ({
+                    pageNumber: page.num || index + 1,
+                    text: page.text?.trim() || "",
+                })
+            );
 
-            // Fallback: if the library gave no per-page data, treat everything as page 1
-            if (pages.length === 0) {
-                return [{ pageNumber: 1, text: result.text }];
-            }
+            console.log("PDF extraction:", {
+                totalPages: pages.length,
+                extractedCharacters: result.text.length,
+                pageLengths: pages.map(p => p.text.length),
+            });
+
             return pages;
         } finally {
             await parser.destroy();
@@ -35,8 +39,17 @@ export const extractText = async (
     // DOCX and TXT have no fixed pages, so everything is "page 1"
     if (mimeType.includes("wordprocessingml")) {
         const result = await mammoth.extractRawText({ buffer });
-        return [{ pageNumber: 1, text: result.value }];
+        return [{ pageNumber: 1, text: result.value.trim() }];
     }
 
-    return [{ pageNumber: 1, text: buffer.toString("utf-8") }];
+
+    if (mimeType === "text/plain") {
+        return [{
+            pageNumber: 1,
+            text: buffer.toString("utf-8").trim(),
+        }];
+    }
+
+    throw new Error("UNSUPPORTED_FILE_TYPE");
+
 };

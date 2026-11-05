@@ -58,11 +58,21 @@ export const uploadDocumnets = async (req: Request, res: Response) => {
             try {
                 // 1. Text, page by page
                 const pages = await extractText(file.buffer, file.mimetype);
-                const text = pages.map((p) => p.text).join("\n");
+
+                console.log("Pages extracted:", pages.length);
+
+                const text = pages.map((p) => p.text).filter(Boolean).
+                join("\n");
+
+                console.log("Text extracted:", text.length);
+
                 if (!text.trim()) throw new Error("EMPTY_TEXT");
 
                 // 2. Chunks that remember their real page number
                 const chunks = chunkPages(pages);
+
+                console.log("Chunks created:", chunks.length);
+
                 if (chunks.length === 0) throw new Error("EMPTY_TEXT");
 
                 await Chunk.insertMany(
@@ -383,193 +393,191 @@ export const renameDocument = async (req: Request, res: Response): Promise<void>
 
 
 // this code suggest by ai 😜
+
 export const retryDocument = async (
-  req: Request,
-  res: Response
+    req: Request,
+    res: Response
 ): Promise<void> => {
-  try {
-    const id = req.params.id;
-
-    // 1. Validate document ID
-    if (!mongoose.isValidObjectId(id)) {
-      res.status(400).json({
-        success: false,
-        message: "INVALID_DOCUMENT_ID",
-      });
-      return;
-    }
-
-    // 2. Find document belonging to logged-in user
-    const doc = await Document.findOne({
-      _id: id,
-      ownerId: req.userId,
-    });
-
-    if (!doc) {
-      res.status(404).json({
-        success: false,
-        message: "DOCUMENT_NOT_FOUND",
-      });
-      return;
-    }
-
-    // 3. Only failed documents can be retried
-    if (doc.status !== "failed") {
-      res.status(409).json({
-        success: false,
-        message: "DOCUMENT_NOT_FAILED",
-      });
-      return;
-    }
-
-    // 4. Empty text means extraction failed.
-    // Re-upload is required instead of embedding retry.
-    if (doc.errorCode === "EMPTY_TEXT") {
-      res.status(409).json({
-        success: false,
-        code: "REUPLOAD_REQUIRED",
-        message: "No readable text found. Please upload the document again.",
-      });
-      return;
-    }
-
-    // 5. Check whether chunks exist
-    const totalChunks = await Chunk.countDocuments({
-      documentId: doc._id,
-      ownerId: req.userId,
-    });
-
-    if (totalChunks === 0) {
-      res.status(409).json({
-        success: false,
-        code: "REUPLOAD_REQUIRED",
-        message: "No document chunks found. Please upload the document again.",
-      });
-      return;
-    }
-
-    // 6. Find chunks without embeddings
-    const missingEmbeddingQuery = {
-      $or: [
-        { embeddingVector: { $exists: false } },
-        { embeddingVector: null },
-        { embeddingVector: { $size: 0 } },
-      ],
-    };
-
-    const missingCount = await Chunk.countDocuments({
-      documentId: doc._id,
-      ownerId: req.userId,
-      ...missingEmbeddingQuery,
-    });
-
-    // Retry is only useful when some embeddings are missing
-    if (missingCount === 0) {
-      res.status(409).json({
-        success: false,
-        code: "RETRY_NOT_AVAILABLE",
-        message: "No incomplete embeddings found for this document.",
-      });
-      return;
-    }
-
-    // 7. Atomically claim this retry.
-    // Prevents two retry requests from processing the same document.
-    const claimedDocument = await Document.findOneAndUpdate(
-      {
-        _id: doc._id,
-        ownerId: req.userId,
-        status: "failed",
-      },
-      {
-        $set: { status: "processing" },
-        $unset: { errorCode: 1 },
-      },
-      { new: true }
-    );
-
-    if (!claimedDocument) {
-      res.status(409).json({
-        success: false,
-        message: "DOCUMENT_ALREADY_PROCESSING",
-      });
-      return;
-    }
+    let claimedDocument: any = null;
 
     try {
-      // 8. Embed only the remaining incomplete chunks
-      await embedDocumentChunks(claimedDocument._id);
+        const id = req.params.id;
 
-      // 9. Verify all chunks now have embeddings
-      const remainingMissing = await Chunk.countDocuments({
-        documentId: claimedDocument._id,
-        ownerId: req.userId,
-        ...missingEmbeddingQuery,
-      });
-
-      if (remainingMissing > 0) {
-        throw new Error("EMBEDDINGS_INCOMPLETE");
-      }
-
-      // 10. Mark document ready only after verification
-      await Document.updateOne(
-        {
-          _id: claimedDocument._id,
-          ownerId: req.userId,
-          status: "processing",
-        },
-        {
-          $set: {
-            status: "ready",
-            chunkCount: totalChunks,
-          },
-          $unset: {
-            errorCode: 1,
-          },
+        // 1. Validate document ID
+        if (!mongoose.isValidObjectId(id)) {
+            res.status(400).json({
+                success: false,
+                message: "INVALID_DOCUMENT_ID",
+            });
+            return;
         }
-      );
 
-      res.status(200).json({
-        success: true,
-        message: "Document embeddings processed successfully",
-        document: {
-          id: claimedDocument._id.toString(),
-          displayName: claimedDocument.displayName,
-          status: "ready",
-          chunkCount: totalChunks,
-        },
-      });
+        // 2. Find user's document
+        const doc = await Document.findOne({
+            _id: id,
+            ownerId: req.userId,
+        }).select("+storageKey");
+
+        if (!doc) {
+            res.status(404).json({
+                success: false,
+                message: "DOCUMENT_NOT_FOUND",
+            });
+            return;
+        }
+
+        if (doc.status !== "failed") {
+            res.status(409).json({
+                success: false,
+                message: "DOCUMENT_NOT_FAILED",
+            });
+            return;
+        }
+
+        // 3. Claim document atomically
+        claimedDocument = await Document.findOneAndUpdate(
+            {
+                _id: doc._id,
+                ownerId: req.userId,
+                status: "failed",
+            },
+            {
+                $set: { status: "processing" },
+                $unset: { errorCode: 1 },
+            },
+            { new: true }
+        ).select("+storageKey");
+
+        if (!claimedDocument) {
+            res.status(409).json({
+                success: false,
+                message: "DOCUMENT_ALREADY_PROCESSING",
+            });
+            return;
+        }
+
+        // 4. Download original PDF from Cloudinary
+        const fileUrl = cloudinary.utils.private_download_url(
+            claimedDocument.storageKey,
+            "raw",
+            {
+                expires_at: Math.floor(Date.now() / 1000) + 3600,
+            }
+        );
+
+        const response = await fetch(fileUrl);
+
+        if (!response.ok) {
+            throw new Error("CLOUDINARY_DOWNLOAD_FAILED");
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        // 5. Extract text
+        const pages = await extractText(
+            buffer,
+            claimedDocument.mimeType
+        );
+
+        const text = pages
+            .map((page) => page.text)
+            .filter(Boolean)
+            .join("\n\n");
+
+        if (!text.trim()) {
+            throw new Error("EMPTY_TEXT");
+        }
+
+        // 6. Remove old chunks before rebuilding
+        await Chunk.deleteMany({
+            documentId: claimedDocument._id,
+            ownerId: req.userId,
+        });
+
+        // 7. Generate fresh chunks
+        const chunks = chunkPages(pages);
+
+        if (!chunks.length) {
+            throw new Error("NO_CHUNKS_GENERATED");
+        }
+
+        await Chunk.insertMany(
+            chunks.map((chunk, index) => ({
+                ownerId: claimedDocument.ownerId,
+                documentId: claimedDocument._id,
+                chunkIndex: index,
+                pageNumber: chunk.pageNumber,
+                text: chunk.text,
+                tokenCount: Math.ceil(chunk.text.length / 4),
+            }))
+        );
+
+        // 8. Generate embeddings
+        await embedDocumentChunks(claimedDocument._id);
+
+        // 9. Verify embeddings
+        const totalChunks = await Chunk.countDocuments({
+            documentId: claimedDocument._id,
+            ownerId: req.userId,
+        });
+
+        const missingEmbeddings = await Chunk.countDocuments({
+            documentId: claimedDocument._id,
+            ownerId: req.userId,
+            $or: [
+                { embeddingVector: { $exists: false } },
+                { embeddingVector: null },
+                { embeddingVector: { $size: 0 } },
+            ],
+        });
+
+        if (totalChunks === 0 || missingEmbeddings > 0) {
+            throw new Error("EMBEDDINGS_INCOMPLETE");
+        }
+
+        // 10. Mark document ready
+        claimedDocument.extractedText = text;
+        claimedDocument.pageCount = pages.length;
+        claimedDocument.chunkCount = totalChunks;
+        claimedDocument.status = "ready";
+        claimedDocument.errorCode = undefined;
+
+        await claimedDocument.save();
+
+        res.status(200).json({
+            success: true,
+            message: "DOCUMENT_REPROCESSED_SUCCESSFULLY",
+            document: {
+                id: claimedDocument._id,
+                filename: claimedDocument.originalFileName,
+                status: "ready",
+                pageCount: pages.length,
+                chunkCount: totalChunks,
+            },
+        });
+
     } catch (error) {
-      // If embedding fails again, preserve failed status
-      const errorCode =
-        error instanceof Error
-          ? error.message.slice(0, 200)
-          : "EMBEDDING_RETRY_FAILED";
+        console.error("retryDocument failed:", error);
 
-      await Document.updateOne(
-        {
-          _id: claimedDocument._id,
-          ownerId: req.userId,
-        },
-        {
-          $set: {
-            status: "failed",
-            errorCode,
-          },
+        if (claimedDocument) {
+            claimedDocument.status = "failed";
+            claimedDocument.errorCode =
+                error instanceof Error
+                    ? error.message.slice(0, 200)
+                    : "REPROCESSING_FAILED";
+
+            await claimedDocument.save();
         }
-      );
 
-      res.status(502).json({
-        success: false,
-        message: "Embedding retry failed. Please try again later.",
-      });
+        res.status(500).json({
+            success: false,
+            message: "DOCUMENT_REPROCESSING_FAILED",
+            error:
+                error instanceof Error
+                    ? error.message
+                    : "UNKNOWN_ERROR",
+        });
     }
-  } catch (error) {
-    console.error("retryDocument failed:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Unable to retry document processing",
-    });
-  }
 };
+

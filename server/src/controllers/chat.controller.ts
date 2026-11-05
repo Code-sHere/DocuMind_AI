@@ -8,322 +8,206 @@ import Message from "../models/Message.model.js";
 
 import { answerQuestion } from "../services/chat/answerQuestion.js";
 
-// ================= CONFIG =================
+import {
+    checkAndConsumeDailyLimit,
+    releaseDailyLimit,
+    type DailyUsageReservation,
+} from "../services/usage/dailyLimit.js";
 
-const MAX_DOCS_PER_CHAT = 10;
-const MAX_QUESTION_LENGTH = 2000;
+type AuthRequest = Request & {
+    userId: string;
+};
 
-// Authenticated request type
-interface AuthRequest extends Request {
-    user: {
-        _id: mongoose.Types.ObjectId;
-    };
-}
-
-// ================= CREATE CHAT =================
-// POST /api/chats
-// Body: { documentIds: [], title?: string }
-
-export const createChat = async (
+const getAuthenticatedUserId = (
     req: AuthRequest,
-    res: Response
-): Promise<void> => {
+): mongoose.Types.ObjectId | null => {
+    if (!req.userId || !mongoose.Types.ObjectId.isValid(req.userId)) {
+        return null;
+    }
+
+    return new mongoose.Types.ObjectId(req.userId);
+};
+
+// CREATE CHAT
+export const createChat = async (req: AuthRequest, res: Response) => {
     try {
+        const userId = getAuthenticatedUserId(req);
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Please log in.",
+            });
+        }
+
         const { documentIds, title } = req.body;
 
-        if (
-            !Array.isArray(documentIds) ||
-            documentIds.length === 0 ||
-            documentIds.length > MAX_DOCS_PER_CHAT ||
-            !documentIds.every(
-                (id: unknown) =>
-                    typeof id === "string" &&
-                    mongoose.isValidObjectId(id)
-            )
-        ) {
-            res.status(400).json({
+        if (!Array.isArray(documentIds) || documentIds.length === 0) {
+            return res.status(400).json({
                 success: false,
-                message: "INVALID_DOCUMENT_IDS",
+                message: "At least one document is required.",
             });
-            return;
         }
 
-        const uniqueIds = [...new Set(documentIds as string[])];
-
-        // Verify document ownership and readiness
-        const count = await Document.countDocuments({
-            _id: { $in: uniqueIds },
-            ownerId: req.userId,
-            status: "ready",
-        });
-
-        if (count !== uniqueIds.length) {
-            res.status(400).json({
+        if (documentIds.length > 10) {
+            return res.status(400).json({
                 success: false,
-                message: "INVALID_DOCUMENT_IDS",
+                message: "You can select a maximum of 10 documents.",
             });
-            return;
         }
 
-        const chat = await Chat.create({
-            ownerId: req.userId,
-            documentIds: uniqueIds,
-            title:
-                typeof title === "string" && title.trim()
-                    ? title.trim()
-                    : "New Chat",
-        });
-
-        res.status(201).json({
-            success: true,
-            chat: {
-                id: chat._id,
-                title: chat.title,
-                documentIds: chat.documentIds,
-            },
-        });
-    } catch (error) {
-        console.error("createChat failed:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Unable to create chat",
-        });
-    }
-};
-
-// ================= GET ALL CHATS =================
-// GET /api/chats
-
-export const getChats = async (
-    req: AuthRequest,
-    res: Response
-): Promise<void> => {
-    try {
-        const chats = await Chat.find({
-            ownerId: req.userId,
-        }).sort({
-            pinned: -1,
-            updatedAt: -1,
-        });
-
-        res.status(200).json({
-            success: true,
-            chats: chats.map((chat) => ({
-                id: chat._id,
-                title: chat.title,
-                documentIds: chat.documentIds,
-                pinned: chat.pinned,
-                updatedAt: chat.updatedAt,
-            })),
-        });
-    } catch (error) {
-        console.error("getChats failed:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Unable to fetch chats",
-        });
-    }
-};
-
-// ================= GET CHAT MESSAGES =================
-// GET /api/chats/:id/messages
-
-export const getChatMessages = async (
-    req: AuthRequest,
-    res: Response
-): Promise<void> => {
-    try {
-        const id = req.params.id;
-
-        if (!mongoose.isValidObjectId(id)) {
-            res.status(400).json({
-                success: false,
-                message: "INVALID_CHAT_ID",
-            });
-            return;
-        }
-
-        // Verify chat ownership
-        const chat = await Chat.findOne({
-            _id: id,
-            ownerId: req.userId,
-        });
-
-        if (!chat) {
-            res.status(404).json({
-                success: false,
-                message: "CHAT_NOT_FOUND",
-            });
-            return;
-        }
-
-        const messages = await Message.find({
-            chatId: chat._id,
-            ownerId: req.userId,
-        }).sort({ createdAt: 1 });
-
-        // Collect unique cited document IDs
-        const docIds = [
-            ...new Set(
-                messages.flatMap((message) =>
-                    message.citations.map((citation) =>
-                        citation.documentId.toString()
-                    )
-                )
-            ),
-        ];
-
-        // Fetch document names
-        const docs = await Document.find({
-            _id: { $in: docIds },
-            ownerId: req.userId,
-        }).select("originalFileName");
-
-        const names = new Map(
-            docs.map((doc) => [
-                doc._id.toString(),
-                doc.originalFileName,
-            ])
+        const validIds = documentIds.every((id: string) =>
+            mongoose.Types.ObjectId.isValid(id),
         );
 
-        res.status(200).json({
-            success: true,
-            messages: messages.map((message) => ({
-                id: message._id,
-                role: message.role,
-                content: message.content,
-                trustLevel: message.trustLevel,
-                createdAt: message.createdAt,
-
-                citations: message.citations.map((citation) => ({
-                    documentId: citation.documentId,
-                    documentName:
-                        names.get(citation.documentId.toString()) ||
-                        "Unknown",
-                    chunkId: citation.chunkId,
-                    pageNumber: citation.pageNumber,
-                    excerpt: citation.excerpt,
-                    relevanceScore: citation.relevanceScore,
-                })),
-            })),
-        });
-    } catch (error) {
-        console.error("getChatMessages failed:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Unable to fetch chat messages",
-        });
-    }
-};
-
-// ================= SEND MESSAGE =================
-// POST /api/chats/:id/messages
-// Body: { content: "Your question" }
-
-export const sendMessage = async (
-    req: AuthRequest,
-    res: Response
-): Promise<void> => {
-    try {
-        const id = req.params.id;
-        const { content } = req.body;
-
-        // Validate chat ID
-        if (!mongoose.isValidObjectId(id)) {
-            res.status(400).json({
+        if (!validIds) {
+            return res.status(400).json({
                 success: false,
-                message: "Invalid chat ID",
+                message: "Invalid document ID.",
             });
-            return;
         }
 
-        // Validate question
-        if (
-            typeof content !== "string" ||
-            !content.trim() ||
-            content.trim().length > MAX_QUESTION_LENGTH
-        ) {
-            res.status(400).json({
-                success: false,
-                message: `Write a question of 1 to ${MAX_QUESTION_LENGTH} characters`,
-            });
-            return;
-        }
-
-        const question = content.trim();
-        const userId = req.userId;
-
-        // 1. Verify chat ownership
-        const chat = await Chat.findOne({
-            _id: id,
-            ownerId: userId,
-        });
-
-        if (!chat) {
-            res.status(404).json({
-                success: false,
-                message: "Chat not found",
-            });
-            return;
-        }
-
-        // 2. Verify documents still exist and are ready
-        const docs = await Document.find({
-            _id: { $in: chat.documentIds },
+        const documents = await Document.find({
+            _id: { $in: documentIds },
             ownerId: userId,
             status: "ready",
         }).select("_id");
 
-        if (docs.length === 0) {
-            res.status(409).json({
+        if (documents.length !== documentIds.length) {
+            return res.status(400).json({
                 success: false,
-                message: "The documents in this chat are no longer available",
+                message: "Some documents are invalid or not ready.",
             });
-            return;
         }
 
-        // 3. Get recent conversation history
-        const recent = await Message.find({
+        const chat = await Chat.create({
+            ownerId: userId,
+            title: title?.trim() || "New chat",
+            documentIds: documents.map((doc) => doc._id),
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "Chat created successfully.",
+            chat,
+        });
+    } catch (error) {
+        console.error("CREATE CHAT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to create chat.",
+        });
+    }
+};
+
+// SEND MESSAGE
+export const sendMessage = async (req: AuthRequest, res: Response) => {
+    let reservation: DailyUsageReservation | null = null;
+
+    try {
+        const userId = getAuthenticatedUserId(req);
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Please log in.",
+            });
+        }
+
+        const chatId = req.params.chatId as string;
+        const { content } = req.body;
+
+        // Validate chat ID
+        if (!mongoose.Types.ObjectId.isValid(chatId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid chat ID.",
+            });
+        }
+
+        // Validate message
+        if (
+            typeof content !== "string" ||
+            !content.trim() ||
+            content.trim().length > 2000
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Message must be between 1 and 2000 characters.",
+            });
+        }
+
+        const question = content.trim();
+
+        // Verify chat ownership
+        const chat = await Chat.findOne({
+            _id: chatId,
+            ownerId: userId,
+        });
+
+        if (!chat) {
+            return res.status(404).json({
+                success: false,
+                message: "Chat not found.",
+            });
+        }
+
+        // Get ready documents belonging to this user and chat
+        const docs = await Document.find({
+            _id: { $in: chat.documentIds },
+            ownerId: userId,
+            status: "ready",
+        }).select("_id filename");
+
+        if (docs.length === 0) {
+            return res.status(409).json({
+                success: false,
+                message: "No ready documents found in this chat.",
+            });
+        }
+
+        // Get recent conversation history
+        const recentMessages = await Message.find({
             chatId: chat._id,
             ownerId: userId,
         })
             .sort({ createdAt: -1 })
-            .limit(4);
+            .limit(4)
+            .select("role content");
 
-        const history = recent.reverse().map((message) => ({
+        const history = recentMessages.reverse().map((message) => ({
             role: message.role,
             content: message.content,
         }));
 
-        // 4. Generate AI answer using RAG
+        // RESERVE DAILY QUESTION LIMIT
+        // This counts all user messages, including conversation messages.
+        reservation = await checkAndConsumeDailyLimit(userId);
+
+        // Generate AI answer
         const result = await answerQuestion(
             question,
-            userId as string,
+            userId.toString(),
             docs.map((doc) => doc._id),
-            history
+            history,
         );
 
-        // 5. Save user message
-        await Message.create({
+        // Save user's question
+        const userMessage = await Message.create({
             chatId: chat._id,
             ownerId: userId,
             role: "user",
             content: question,
-            originalQuestion: question,
-            citations: [],
         });
 
-        // 6. Save assistant response
-        const assistant = await Message.create({
+        // Save assistant's answer
+        const assistantMessage = await Message.create({
             chatId: chat._id,
             ownerId: userId,
             role: "assistant",
             content: result.content,
             trustLevel: result.trustLevel,
-
             citations: result.citations.map((citation) => ({
                 documentId: citation.documentId,
                 chunkId: citation.chunkId,
@@ -331,52 +215,298 @@ export const sendMessage = async (
                 excerpt: citation.excerpt,
                 relevanceScore: citation.relevanceScore,
             })),
-
             tokenUsage: result.tokenUsage,
-            latencyMs: result.latencyMs,
             modelUsed: result.modelUsed,
+            latencyMs: result.latencyMs,
         });
 
-        // 7. Update chat title and activity
-        if (chat.title === "New Chat") {
-            chat.title = question.slice(0, 60);
+        // Update chat activity
+        if (chat.title === "New chat") {
+            chat.title = question.slice(0, 50);
         }
 
         chat.updatedAt = new Date();
         await chat.save();
 
-        // 8. Send response
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
-            message: {
-                id: assistant._id,
-                role: "assistant",
-                content: result.content,
-                trustLevel: result.trustLevel,
-                citations: result.citations,
-                createdAt: assistant.createdAt,
+            message: "Message sent successfully.",
+            data: {
+                userMessage,
+                assistantMessage,
+            },
+            usage: {
+                limit: 50,
+                used: reservation.used,
+                remaining: reservation.remaining,
+                resetTimezone: "Asia/Kolkata",
             },
         });
-    } catch (error) {
-        console.error("sendMessage failed:", error);
+    } catch (error: any) {
+        console.error("SEND MESSAGE ERROR:", error);
 
-        const errorCode =
-            error instanceof Error ? error.message : "";
-
-        if (
-            errorCode === "AI_TIMEOUT" ||
-            errorCode === "AI_BAD_RESPONSE"
-        ) {
-            res.status(502).json({
-                success: false,
-                message: "The AI service did not answer. Please try again.",
-            });
-            return;
+        // Release the reserved question if processing failed.
+        if (reservation) {
+            try {
+                await releaseDailyLimit(reservation);
+            } catch (releaseError) {
+                console.error("DAILY LIMIT RELEASE ERROR:", releaseError);
+            }
         }
 
-        res.status(500).json({
+        // Daily limit reached
+        if (error?.message === "DAILY_MESSAGE_LIMIT_REACHED") {
+            return res.status(429).json({
+                success: false,
+                code: "DAILY_MESSAGE_LIMIT_REACHED",
+                message:
+                    "You have reached your daily limit of 50 questions. Your limit will reset at midnight IST.",
+                usage: {
+                    limit: 50,
+                    remaining: 0,
+                    resetTimezone: "Asia/Kolkata",
+                },
+            });
+        }
+
+        // AI errors
+        if (
+            error?.message === "AI_TIMEOUT" ||
+            error?.message === "AI_BAD_RESPONSE" ||
+            error?.message === "AI_UNAVAILABLE"
+        ) {
+            return res.status(502).json({
+                success: false,
+                message: "AI service is temporarily unavailable. Please try again.",
+            });
+        }
+
+        return res.status(500).json({
             success: false,
-            message: "Unable to answer right now",
+            message: "Failed to send message.",
+        });
+    }
+};
+
+// GET USER CHATS
+export const getChats = async (req: AuthRequest, res: Response) => {
+    try {
+
+        const userId = getAuthenticatedUserId(req);
+
+        const chats = await Chat.find({ ownerId: userId })
+            .sort({ pinned: -1, updatedAt: -1 })
+            .lean();
+
+        return res.status(200).json({
+            success: true,
+            chats,
+        });
+    } catch (error) {
+        console.error("GET CHATS ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch chats.",
+        });
+    }
+};
+
+// GET CHAT MESSAGES
+export const getChatMessages = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+
+        const chatId = req.params.chatId as string;
+
+        if (!mongoose.Types.ObjectId.isValid(chatId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid chat ID.",
+            });
+        }
+
+        const chat = await Chat.findOne({
+            _id: chatId,
+            ownerId: userId,
+        }).select("_id");
+
+        if (!chat) {
+            return res.status(404).json({
+                success: false,
+                message: "Chat not found.",
+            });
+        }
+
+        const messages = await Message.find({
+            chatId: chat._id,
+            ownerId: userId,
+        }).sort({ createdAt: 1 });
+
+        return res.status(200).json({
+            success: true,
+            messages,
+        });
+    } catch (error) {
+        console.error("GET CHAT MESSAGES ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch messages.",
+        });
+    }
+};
+
+// DELETE CHAT
+export const deleteChat = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+
+        const chatId = req.params.chatId as string;
+
+        if (!mongoose.Types.ObjectId.isValid(chatId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid chat ID.",
+            });
+        }
+
+        const chat = await Chat.findOneAndDelete({
+            _id: chatId,
+            ownerId: userId,
+        });
+
+        if (!chat) {
+            return res.status(404).json({
+                success: false,
+                message: "Chat not found.",
+            });
+        }
+
+        await Message.deleteMany({
+            chatId: chat._id,
+            ownerId: userId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Chat deleted successfully.",
+        });
+    } catch (error) {
+        console.error("DELETE CHAT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to delete chat.",
+        });
+    }
+};
+
+// RENAME CHAT
+export const renameChat = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+
+        const chatId = req.params.chatId as string;
+        const { title } = req.body;
+
+        if (!mongoose.Types.ObjectId.isValid(chatId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid chat ID.",
+            });
+        }
+
+        if (
+            typeof title !== "string" ||
+            !title.trim() ||
+            title.trim().length > 200
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Title must be between 1 and 200 characters.",
+            });
+        }
+
+        const chat = await Chat.findOneAndUpdate(
+            {
+                _id: chatId,
+                ownerId: userId,
+            },
+            {
+                $set: {
+                    title: title.trim(),
+                },
+            },
+            {
+                new: true,
+                runValidators: true,
+            },
+        );
+
+        if (!chat) {
+            return res.status(404).json({
+                success: false,
+                message: "Chat not found.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Chat renamed successfully.",
+            chat,
+        });
+    } catch (error) {
+        console.error("RENAME CHAT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to rename chat.",
+        });
+    }
+};
+
+// TOGGLE PIN CHAT
+export const togglePinChat = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = getAuthenticatedUserId(req);
+
+        const chatId = req.params.chatId as string;
+        if (!mongoose.Types.ObjectId.isValid(chatId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid chat ID.",
+            });
+        }
+
+        const chat = await Chat.findOne({
+            _id: chatId,
+            ownerId: userId,
+        });
+
+        if (!chat) {
+            return res.status(404).json({
+                success: false,
+                message: "Chat not found.",
+            });
+        }
+
+        chat.pinned = !chat.pinned;
+        await chat.save();
+
+        return res.status(200).json({
+            success: true,
+            message: chat.pinned
+                ? "Chat pinned successfully."
+                : "Chat unpinned successfully.",
+            chat,
+        });
+    } catch (error) {
+        console.error("TOGGLE PIN CHAT ERROR:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update chat pin.",
         });
     }
 };

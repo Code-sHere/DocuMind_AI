@@ -23,9 +23,9 @@ router.post("/", createChat as unknown as RequestHandler);
 router.get("/", getChats as unknown as RequestHandler);
 
 // Get messages of a particular chat
-router.get("/:id/messages", getChatMessages as unknown as RequestHandler);
+router.get("/:chatId/messages", getChatMessages as unknown as RequestHandler);
 
 // Send a message
-router.post("/:id/messages", chatRateLimit, sendMessage as unknown as RequestHandler);
+router.post("/:chatId/messages", chatRateLimit, sendMessage as unknown as RequestHandler);
 
 export default router;

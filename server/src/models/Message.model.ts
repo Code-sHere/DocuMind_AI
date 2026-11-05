@@ -8,7 +8,7 @@ interface IMessage {
   content: string;
   originalQuestion?: string;
   rewrittenSearchQuery?: string;
-  trustLevel?: "strong" | "partial" | "not_found";
+  trustLevel?: "strong" | "partial" | "not_found" | "conversation";
   citations: {
     documentId: Types.ObjectId;
     chunkId: Types.ObjectId;
@@ -51,7 +51,8 @@ const messageSchema = new Schema<IMessage>({
   rewrittenSearchQuery: String,
   trustLevel: {
     type: String,
-    enum: ["strong", "partial", "not_found"],
+    enum: ["strong", "partial", "not_found", "conversation"],
+    default: "not_found",
   },
   citations: [{
     documentId: {
