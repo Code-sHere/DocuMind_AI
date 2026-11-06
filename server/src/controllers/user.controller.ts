@@ -9,7 +9,7 @@ import Chat from "../models/Chats.model.js";
 import Message from "../models/Message.model.js";
 import DailyUsage from "../models/DailyUsage.js";
 
-const THEMES = ["light", "dark", "system"] as const;
+const THEMES = ["ember", "emerald", "daylight"] as const;
 
 type Theme = (typeof THEMES)[number];
 

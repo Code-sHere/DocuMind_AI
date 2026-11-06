@@ -10,6 +10,7 @@ export class ApiError extends Error {
   }
 }
 
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const isFormData = init.body instanceof FormData;
@@ -23,11 +24,21 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   // Backend always replies with JSON: { success, message, ... }
-  const data = await res.json().catch(() => null);
+ const data = await res.json().catch(() => null);
 
-  if (!res.ok) {
-    throw new ApiError(data?.message ?? "Something went wrong", res.status);
-  }
+if (!res.ok) {
+  console.log("API REQUEST FAILED:", {
+    url: `${BASE}${path}`,
+    status: res.status,
+    response: data,
+  });
 
-  return data as T;
+  throw new ApiError(
+    data?.message ??
+      `Request failed with status ${res.status}`,
+    res.status
+  );
+}
+
+return data as T;
 }

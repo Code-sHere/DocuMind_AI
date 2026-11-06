@@ -5,7 +5,7 @@ export type UserProfile = {
     id: string;
     name: string;
     email: string;
-    theme: "light" | "dark" | "system";
+    theme: "ember"| "emerald"| "daylight";
 };
 
 export type UserResponse = {
@@ -44,7 +44,7 @@ export const updateProfile = (data: UpdateProfileInput) =>
 
 // Update theme
 export const updateTheme = (theme: ThemeName) =>
-  api("/users/theme", {
+  api<ThemeResponse>("/user/theme", {
     method: "PATCH",
     body: JSON.stringify({ theme }),
   });
