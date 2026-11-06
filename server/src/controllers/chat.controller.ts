@@ -1,4 +1,3 @@
-
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 
@@ -9,8 +8,10 @@ import Message from "../models/Message.model.js";
 import { answerQuestion } from "../services/chat/answerQuestion.js";
 
 import {
+    DAILY_MESSAGE_LIMIT,
     checkAndConsumeDailyLimit,
     releaseDailyLimit,
+    recordQuestionAsked,
     type DailyUsageReservation,
 } from "../services/usage/dailyLimit.js";
 
@@ -24,21 +25,20 @@ const getAuthenticatedUserId = (
     if (!req.userId || !mongoose.Types.ObjectId.isValid(req.userId)) {
         return null;
     }
-
     return new mongoose.Types.ObjectId(req.userId);
 };
+
+const unauthorized = (res: Response) =>
+    res.status(401).json({
+        success: false,
+        message: "Please log in.",
+    });
 
 // CREATE CHAT
 export const createChat = async (req: AuthRequest, res: Response) => {
     try {
         const userId = getAuthenticatedUserId(req);
-
-        if (!userId) {
-            return res.status(401).json({
-                success: false,
-                message: "Please log in.",
-            });
-        }
+        if (!userId) return unauthorized(res);
 
         const { documentIds, title } = req.body;
 
@@ -93,7 +93,6 @@ export const createChat = async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error("CREATE CHAT ERROR:", error);
-
         return res.status(500).json({
             success: false,
             message: "Failed to create chat.",
@@ -107,18 +106,11 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
 
     try {
         const userId = getAuthenticatedUserId(req);
-
-        if (!userId) {
-            return res.status(401).json({
-                success: false,
-                message: "Please log in.",
-            });
-        }
+        if (!userId) return unauthorized(res);
 
         const chatId = req.params.chatId as string;
         const { content } = req.body;
 
-        // Validate chat ID
         if (!mongoose.Types.ObjectId.isValid(chatId)) {
             return res.status(400).json({
                 success: false,
@@ -126,7 +118,6 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Validate message
         if (
             typeof content !== "string" ||
             !content.trim() ||
@@ -140,11 +131,7 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
 
         const question = content.trim();
 
-        // Verify chat ownership
-        const chat = await Chat.findOne({
-            _id: chatId,
-            ownerId: userId,
-        });
+        const chat = await Chat.findOne({ _id: chatId, ownerId: userId });
 
         if (!chat) {
             return res.status(404).json({
@@ -153,7 +140,6 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Get ready documents belonging to this user and chat
         const docs = await Document.find({
             _id: { $in: chat.documentIds },
             ownerId: userId,
@@ -167,7 +153,6 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // Get recent conversation history
         const recentMessages = await Message.find({
             chatId: chat._id,
             ownerId: userId,
@@ -181,11 +166,10 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             content: message.content,
         }));
 
-        // RESERVE DAILY QUESTION LIMIT
-        // This counts all user messages, including conversation messages.
+        // 1. Daily slot reserve karo (atomic). Limit poori ho to yahi throw hoga.
         reservation = await checkAndConsumeDailyLimit(userId);
 
-        // Generate AI answer
+        // 2. AI answer
         const result = await answerQuestion(
             question,
             userId.toString(),
@@ -193,7 +177,7 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             history,
         );
 
-        // Save user's question
+        // 3. Messages save karo
         const userMessage = await Message.create({
             chatId: chat._id,
             ownerId: userId,
@@ -201,7 +185,6 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             content: question,
         });
 
-        // Save assistant's answer
         const assistantMessage = await Message.create({
             chatId: chat._id,
             ownerId: userId,
@@ -220,32 +203,41 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             latencyMs: result.latencyMs,
         });
 
-        // Update chat activity
         if (chat.title === "New chat") {
             chat.title = question.slice(0, 50);
         }
-
         chat.updatedAt = new Date();
         await chat.save();
+
+        // 4. Answer success ho gaya: ab slot confirm hai, wapas nahi milega.
+        //    Isliye stats update fail bhi ho to user ko error mat do.
+        const confirmedReservation = reservation;
+        reservation = null;
+
+        try {
+            await recordQuestionAsked(userId, {
+                input: Number(result.tokenUsage?.input ?? 0) || 0,
+                output: Number(result.tokenUsage?.output ?? 0) || 0,
+            });
+        } catch (statsError) {
+            console.error("USER STATS UPDATE ERROR:", statsError);
+        }
 
         return res.status(200).json({
             success: true,
             message: "Message sent successfully.",
-            data: {
-                userMessage,
-                assistantMessage,
-            },
+            data: { userMessage, assistantMessage },
             usage: {
-                limit: 50,
-                used: reservation.used,
-                remaining: reservation.remaining,
+                limit: DAILY_MESSAGE_LIMIT,
+                used: confirmedReservation.used,
+                remaining: confirmedReservation.remaining,
                 resetTimezone: "Asia/Kolkata",
             },
         });
     } catch (error: any) {
         console.error("SEND MESSAGE ERROR:", error);
 
-        // Release the reserved question if processing failed.
+        // Processing fail hui to reserved slot wapas do
         if (reservation) {
             try {
                 await releaseDailyLimit(reservation);
@@ -254,22 +246,20 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Daily limit reached
         if (error?.message === "DAILY_MESSAGE_LIMIT_REACHED") {
             return res.status(429).json({
                 success: false,
                 code: "DAILY_MESSAGE_LIMIT_REACHED",
-                message:
-                    "You have reached your daily limit of 50 questions. Your limit will reset at midnight IST.",
+                message: `You have reached your daily limit of ${DAILY_MESSAGE_LIMIT} questions. Your limit will reset at midnight IST.`,
                 usage: {
-                    limit: 50,
+                    limit: DAILY_MESSAGE_LIMIT,
+                    used: DAILY_MESSAGE_LIMIT,
                     remaining: 0,
                     resetTimezone: "Asia/Kolkata",
                 },
             });
         }
 
-        // AI errors
         if (
             error?.message === "AI_TIMEOUT" ||
             error?.message === "AI_BAD_RESPONSE" ||
@@ -291,20 +281,16 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
 // GET USER CHATS
 export const getChats = async (req: AuthRequest, res: Response) => {
     try {
-
         const userId = getAuthenticatedUserId(req);
+        if (!userId) return unauthorized(res);
 
         const chats = await Chat.find({ ownerId: userId })
             .sort({ pinned: -1, updatedAt: -1 })
             .lean();
 
-        return res.status(200).json({
-            success: true,
-            chats,
-        });
+        return res.status(200).json({ success: true, chats });
     } catch (error) {
         console.error("GET CHATS ERROR:", error);
-
         return res.status(500).json({
             success: false,
             message: "Failed to fetch chats.",
@@ -316,6 +302,7 @@ export const getChats = async (req: AuthRequest, res: Response) => {
 export const getChatMessages = async (req: AuthRequest, res: Response) => {
     try {
         const userId = getAuthenticatedUserId(req);
+        if (!userId) return unauthorized(res);
 
         const chatId = req.params.chatId as string;
 
@@ -343,13 +330,9 @@ export const getChatMessages = async (req: AuthRequest, res: Response) => {
             ownerId: userId,
         }).sort({ createdAt: 1 });
 
-        return res.status(200).json({
-            success: true,
-            messages,
-        });
+        return res.status(200).json({ success: true, messages });
     } catch (error) {
         console.error("GET CHAT MESSAGES ERROR:", error);
-
         return res.status(500).json({
             success: false,
             message: "Failed to fetch messages.",
@@ -361,6 +344,7 @@ export const getChatMessages = async (req: AuthRequest, res: Response) => {
 export const deleteChat = async (req: AuthRequest, res: Response) => {
     try {
         const userId = getAuthenticatedUserId(req);
+        if (!userId) return unauthorized(res);
 
         const chatId = req.params.chatId as string;
 
@@ -383,10 +367,7 @@ export const deleteChat = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        await Message.deleteMany({
-            chatId: chat._id,
-            ownerId: userId,
-        });
+        await Message.deleteMany({ chatId: chat._id, ownerId: userId });
 
         return res.status(200).json({
             success: true,
@@ -394,7 +375,6 @@ export const deleteChat = async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error("DELETE CHAT ERROR:", error);
-
         return res.status(500).json({
             success: false,
             message: "Failed to delete chat.",
@@ -406,6 +386,7 @@ export const deleteChat = async (req: AuthRequest, res: Response) => {
 export const renameChat = async (req: AuthRequest, res: Response) => {
     try {
         const userId = getAuthenticatedUserId(req);
+        if (!userId) return unauthorized(res);
 
         const chatId = req.params.chatId as string;
         const { title } = req.body;
@@ -429,19 +410,9 @@ export const renameChat = async (req: AuthRequest, res: Response) => {
         }
 
         const chat = await Chat.findOneAndUpdate(
-            {
-                _id: chatId,
-                ownerId: userId,
-            },
-            {
-                $set: {
-                    title: title.trim(),
-                },
-            },
-            {
-                new: true,
-                runValidators: true,
-            },
+            { _id: chatId, ownerId: userId },
+            { $set: { title: title.trim() } },
+            { new: true, runValidators: true },
         );
 
         if (!chat) {
@@ -458,7 +429,6 @@ export const renameChat = async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error("RENAME CHAT ERROR:", error);
-
         return res.status(500).json({
             success: false,
             message: "Failed to rename chat.",
@@ -470,8 +440,10 @@ export const renameChat = async (req: AuthRequest, res: Response) => {
 export const togglePinChat = async (req: AuthRequest, res: Response) => {
     try {
         const userId = getAuthenticatedUserId(req);
+        if (!userId) return unauthorized(res);
 
         const chatId = req.params.chatId as string;
+
         if (!mongoose.Types.ObjectId.isValid(chatId)) {
             return res.status(400).json({
                 success: false,
@@ -479,10 +451,7 @@ export const togglePinChat = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const chat = await Chat.findOne({
-            _id: chatId,
-            ownerId: userId,
-        });
+        const chat = await Chat.findOne({ _id: chatId, ownerId: userId });
 
         if (!chat) {
             return res.status(404).json({
@@ -503,7 +472,6 @@ export const togglePinChat = async (req: AuthRequest, res: Response) => {
         });
     } catch (error) {
         console.error("TOGGLE PIN CHAT ERROR:", error);
-
         return res.status(500).json({
             success: false,
             message: "Failed to update chat pin.",

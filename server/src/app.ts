@@ -5,6 +5,8 @@ import authRouter from "./routes/auth.route.js";
 import cookieParser from "cookie-parser";
 import documentRoutes from "./routes/document.routes.js";
 import chatRoutes from "./routes/chat.route.js";
+import userRoutes from "./routes/user.routes.js";
+import usageRoutes from "./routes/usage.routes.js";
 
 const app = express();
 
@@ -25,6 +27,10 @@ app.use("/api/chats", chatRoutes);
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ message: err.message });
 });
+
+
+app.use("/api/user", userRoutes);
+app.use("/api/usage", usageRoutes);
 
 app.get("/api/health", (req, res) => {
     res.json({ success: true, status: "healthy", message: "Hello from server!" });

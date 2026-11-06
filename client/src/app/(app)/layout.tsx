@@ -51,7 +51,6 @@ const navItems = [
   { label: "Desk", href: "/dashboard", icon: LayoutDashboard },
   { label: "Library", href: "/dashboard/library", icon: Library },
   { label: "Chats", href: "/dashboard/chats", icon: MessagesSquare },
-  { label: "Study", href: "/dashboard/study", icon: BookOpen },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
