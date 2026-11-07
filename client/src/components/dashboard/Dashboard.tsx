@@ -183,7 +183,7 @@ export default function Dashboard() {
       </main>
     );
   }
-
+  console.log(user.stats.totalQuestionsAsked);
   if (!user) return null;
 
   return (
@@ -207,7 +207,7 @@ export default function Dashboard() {
 
               {/* Usage Indicator */}
               <span className="rounded-full border border-[#ff9500]/20 bg-[#ff9500]/10 px-4 py-2 text-sm font-bold text-[#FFB020]">
-                18 / 50 questions today
+                {user.stats.totalQuestionsAsked} / 50 questions today
               </span>
 
             </div>

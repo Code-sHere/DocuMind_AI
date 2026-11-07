@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getMe } from "@/lib/api/auth";
 
 import {
   LayoutDashboard,
@@ -20,25 +21,60 @@ import {
 
 // ================= LANDING NAVBAR =================
 
-export function LandingNav() {
+type LandingNavProps = {
+  isLoggedIn: boolean;
+  isAuthLoading: boolean;
+};
+
+
+
+export function LandingNav({
+  isLoggedIn,
+  isAuthLoading,
+}: LandingNavProps) {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 md:px-16">
-        <Link href="/" className="text-xl font-bold tracking-tight text-foreground">
+        <Link
+          href="/"
+          className="text-xl font-bold tracking-tight text-foreground"
+        >
           DocuMind <span className="text-primary">AI</span>
         </Link>
 
         <nav className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className={cn(buttonVariants({ variant: "outline" }), "glass")}
-          >
-            Log in
-          </Link>
+          {!isAuthLoading && (
+            <>
+              {isLoggedIn ? (
+                <Link
+                  href="/dashboard"
+                  className={cn(buttonVariants(), "btn-gradient")}
+                >
+                  <LayoutDashboard className="mr-2 size-4" />
+                  Dashboard
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className={cn(
+                      buttonVariants({ variant: "outline" }),
+                      "glass"
+                    )}
+                  >
+                    Log in
+                  </Link>
 
-          <Link href="/register" className={cn(buttonVariants(), "btn-gradient")}>
-            Start free
-          </Link>
+                  <Link
+                    href="/register"
+                    className={cn(buttonVariants(), "btn-gradient")}
+                  >
+                    Start free
+                  </Link>
+                </>
+              )}
+            </>
+          )}
         </nav>
       </div>
     </header>

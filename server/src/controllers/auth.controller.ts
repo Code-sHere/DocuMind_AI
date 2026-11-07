@@ -173,6 +173,7 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
                 name: user.name,
                 email: user.email,
                 theme: user.theme,
+                stats: user.stats
             },
         });
     } catch (error) {

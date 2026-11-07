@@ -1,3 +1,8 @@
+
+"use client";
+
+import { useEffect, useState } from "react";
+import { getMe } from "@/lib/api/auth";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -22,10 +27,33 @@ const steps = [
   },
 ];
 
+
 export default function LandingPage() {
+
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        await getMe();
+        setIsLoggedIn(true);
+      } catch {
+        setIsLoggedIn(false);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
   return (
     <main>
-      <LandingNav />
+      <LandingNav
+        isLoggedIn={isLoggedIn}
+        isAuthLoading={isAuthLoading}
+      />
 
       {/* Hero */}
       <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-16 lg:grid-cols-2 lg:py-24">
