@@ -159,46 +159,46 @@ export default function LibraryPage() {
   };
 
   // Search, filter and sorting
- const filteredDocuments = useMemo(() => {
-  const query = search.trim().toLowerCase();
+  const filteredDocuments = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-  const result = documents.filter((doc) => {
-    const filename = doc.filename ?? "";
+    const result = documents.filter((doc) => {
+      const filename = doc.filename ?? "";
 
-    const matchesFilter =
-      filter === "all" || doc.status === filter;
+      const matchesFilter =
+        filter === "all" || doc.status === filter;
 
-    const matchesSearch =
-      filename.toLowerCase().includes(query);
+      const matchesSearch =
+        filename.toLowerCase().includes(query);
 
-    return matchesFilter && matchesSearch;
-  });
+      return matchesFilter && matchesSearch;
+    });
 
-  result.sort((a, b) => {
-    switch (sort) {
-      case "oldest":
-        return (
-          new Date(a.createdAt ?? 0).getTime() -
-          new Date(b.createdAt ?? 0).getTime()
-        );
+    result.sort((a, b) => {
+      switch (sort) {
+        case "oldest":
+          return (
+            new Date(a.createdAt ?? 0).getTime() -
+            new Date(b.createdAt ?? 0).getTime()
+          );
 
-      case "name":
-        return (a.filename ?? "").localeCompare(b.filename ?? "");
+        case "name":
+          return (a.filename ?? "").localeCompare(b.filename ?? "");
 
-      case "size":
-        return (b.size ?? 0) - (a.size ?? 0);
+        case "size":
+          return (b.size ?? 0) - (a.size ?? 0);
 
-      case "newest":
-      default:
-        return (
-          new Date(b.createdAt ?? 0).getTime() -
-          new Date(a.createdAt ?? 0).getTime()
-        );
-    }
-  });
+        case "newest":
+        default:
+          return (
+            new Date(b.createdAt ?? 0).getTime() -
+            new Date(a.createdAt ?? 0).getTime()
+          );
+      }
+    });
 
-  return result;
-}, [documents, filter, search, sort]);
+    return result;
+  }, [documents, filter, search, sort]);
 
   // Document counts
   const counts = useMemo(
@@ -210,25 +210,25 @@ export default function LibraryPage() {
     <>
       <Sidebar />
 
-      <main className="min-h-screen px-4 pb-16 pt-28 text-white sm:px-6 lg:px-10">
+      <main className="min-h-screen px-4 pb-16 pt-28 text-foreground sm:px-6 lg:px-10">
         <div className="mx-auto w-full max-w-7xl space-y-8">
 
           {/* PAGE HEADER */}
           <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div>
-              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-orange-300">
+              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
                 <Sparkles size={14} />
                 Your workspace
               </div>
 
               <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
                 Your{" "}
-                <span className="bg-gradient-to-r from-orange-300 to-pink-400 bg-clip-text text-transparent">
+                <span className="bg-linear-to-r from-primary to-(--grad-to) bg-clip-text text-transparent">
                   Library.
                 </span>
               </h1>
 
-              <p className="mt-3 max-w-xl text-sm leading-6 text-white/50 sm:text-base">
+              <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
                 All your knowledge, in one place. Manage documents,
                 explore insights and start conversations.
               </p>
@@ -237,7 +237,7 @@ export default function LibraryPage() {
             <button
               type="button"
               onClick={() => setShowUpload(true)}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-300 to-pink-500 px-5 py-3 text-sm font-bold text-[#251719] shadow-lg shadow-orange-500/10 transition-all hover:-translate-y-0.5 hover:shadow-orange-500/20"
+              className="btn-gradient inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm shadow-lg shadow-primary/20 transition-all hover:-translate-y-0.5"
             >
               <UploadCloud size={18} />
               Upload documents
@@ -291,7 +291,7 @@ export default function LibraryPage() {
               {Array.from({ length: 6 }).map((_, index) => (
                 <div
                   key={index}
-                  className="h-56 animate-pulse rounded-2xl border border-white/5 bg-white/[0.04]"
+                  className="h-56 animate-pulse rounded-2xl border border-border bg-muted"
                 />
               ))}
             </div>
@@ -321,7 +321,7 @@ export default function LibraryPage() {
           )}
 
           {/* FOOTER */}
-          <footer className="flex flex-col items-center justify-between gap-2 border-t border-white/[0.07] pt-6 text-xs text-white/30 sm:flex-row">
+          <footer className="flex flex-col items-center justify-between gap-2 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row">
             <p>DocuMind AI · Your knowledge workspace</p>
             <p>Ask your documents. Get proof, not guesses.</p>
           </footer>
