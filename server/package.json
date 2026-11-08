@@ -14,6 +14,7 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
+    "@clerk/express": "^2.1.88",
     "@google/genai": "^2.32.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.11.0",

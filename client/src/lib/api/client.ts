@@ -1,4 +1,5 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
+const BASE =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
 
 export class ApiError extends Error {
   status: number;
@@ -10,35 +11,43 @@ export class ApiError extends Error {
   }
 }
 
-
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-
+export async function api<T>(
+  path: string,
+  init: RequestInit = {},
+  token?: string
+): Promise<T> {
   const isFormData = init.body instanceof FormData;
+
+  const headers = new Headers(init.headers);
+
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
 
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    credentials: "include", // REQUIRED: lets the browser store and send the token cookie
-    headers: isFormData
-      ? { ...init.headers } // browser khud boundary ke saath Content-Type set karega
-      : { "Content-Type": "application/json", ...init.headers },
+    headers,
+    credentials: "omit",
   });
 
-  // Backend always replies with JSON: { success, message, ... }
- const data = await res.json().catch(() => null);
+  const data = await res.json().catch(() => null);
 
-if (!res.ok) {
-  console.log("API REQUEST FAILED:", {
-    url: `${BASE}${path}`,
-    status: res.status,
-    response: data,
-  });
+  if (!res.ok) {
+    console.log("API REQUEST FAILED:", {
+      url: `${BASE}${path}`,
+      status: res.status,
+      response: data,
+    });
 
-  throw new ApiError(
-    data?.message ??
-      `Request failed with status ${res.status}`,
-    res.status
-  );
-}
+    throw new ApiError(
+      data?.message ?? `Request failed with status ${res.status}`,
+      res.status
+    );
+  }
 
-return data as T;
+  return data as T;
 }

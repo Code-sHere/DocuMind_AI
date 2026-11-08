@@ -108,10 +108,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
         const user = await User.findOne({ email: email.trim().toLowerCase() }).select("+passwordHash");
 
-        if (!user) {
-            res.status(404).json({
+        if (!user || !user.passwordHash) {
+            res.status(401).json({
                 success: false,
-                message: "User not found"
+                message: "Invalid email or password",
             });
             return;
         }
@@ -160,12 +160,12 @@ export const logout = async (_req: Request, res: Response): Promise<void> => {
 export const getMe = async (req: Request, res: Response): Promise<void> => {
     try {
         const user = await User.findById(req.userId);
- 
+
         if (!user) {
             res.status(401).json({ success: false, message: "Please log in again" });
             return;
         }
- 
+
         res.status(200).json({
             success: true,
             user: {
@@ -181,4 +181,3 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
         res.status(500).json({ success: false, message: "Internal server error" });
     }
 };
- 

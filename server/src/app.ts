@@ -1,8 +1,11 @@
 import "dotenv/config";
+
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import authRouter from "./routes/auth.route.js";
 import cookieParser from "cookie-parser";
+import { clerkMiddleware } from "@clerk/express";
+
+import authRouter from "./routes/auth.route.js";
 import documentRoutes from "./routes/document.routes.js";
 import chatRoutes from "./routes/chat.route.js";
 import userRoutes from "./routes/user.routes.js";
@@ -10,47 +13,64 @@ import usageRoutes from "./routes/usage.routes.js";
 
 const app = express();
 
-app.use(cors({
-    origin: "http://localhost:3000",
-    credentials: true
-}));
+const allowedOrigins = (
+  process.env.CLIENT_URL || "http://localhost:3000"
+)
+  .split(",")
+  .map((origin) => origin.trim());
+
+// Clerk authentication middleware
+app.use(
+  clerkMiddleware({
+    authorizedParties: allowedOrigins,
+  })
+);
+
+// CORS
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  })
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// API routes
 app.use("/api/auth", authRouter);
 app.use("/api/documents", documentRoutes);
 app.use("/api/chats", chatRoutes);
-
-// multer / baaki errors ke liye
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    res.status(400).json({ message: err.message });
-});
-
-
 app.use("/api/user", userRoutes);
 app.use("/api/usage", usageRoutes);
 
-app.get("/api/health", (req, res) => {
-    res.json({ success: true, status: "healthy", message: "Hello from server!" });
+// Health check
+app.get("/api/health", (_req, res) => {
+  res.json({
+    success: true,
+    status: "healthy",
+    message: "Hello from DocuMind AI!",
+  });
 });
 
+// Global error handler
 app.use(
-    (
-        err: Error,
-        _req: Request,
-        res: Response,
-        _next: NextFunction
-    ) => {
-        console.error("Global error:", err);
+  (
+    err: Error,
+    _req: Request,
+    res: Response,
+    _next: NextFunction
+  ) => {
+    console.error("Global error:", err);
 
-        res.status(400).json({
-            success: false,
-            message: err.message || "Something went wrong",
-        });
-    }
+    res.status(500).json({
+      success: false,
+      message: err.message || "Something went wrong",
+    });
+  }
 );
-
 
 export default app;

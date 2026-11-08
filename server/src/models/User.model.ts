@@ -4,7 +4,7 @@ interface IUser {
   _id: Types.ObjectId;
   name: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   theme: "ember" | "emerald" | "daylight";
   stats: {
     totalQuestionsAsked: number;
@@ -15,13 +15,18 @@ interface IUser {
   };
   createdAt: Date;
   updatedAt: Date;
+  clerkUserId?: string;
 }
 
 const userSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, trim: true, minlength: 2, maxlength: 100 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    passwordHash: { type: String, required: true, select: false },
+    passwordHash: {
+      type: String,
+      required: false,
+      select: false,
+    },
     theme: {
       type: String,
       enum: ["ember", "emerald", "daylight"],
@@ -35,6 +40,12 @@ const userSchema = new Schema<IUser>(
       totalInputTokens: { type: Number, default: 0, min: 0 },
       totalOutputTokens: { type: Number, default: 0, min: 0 },
       lastQuestionAt: { type: Date },
+    },
+    clerkUserId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
     },
   },
   { timestamps: true }

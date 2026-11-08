@@ -1,43 +1,45 @@
 
-import { api } from "./client";
+import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 
-export type User = {
-    id: string;
-    name: string;
-    email: string;
-    theme: string;
-};
+export function useCurrentUser() {
+    const { user, isLoaded, isSignedIn } = useUser();
 
-export type AuthResponse = {
-    success: boolean;
-    message: string;
-    user: User;
-};
+    return {
+        user: user
+            ? {
+                  id: user.id,
+                  name:
+                      user.fullName ||
+                      user.firstName ||
+                      "DocuMind User",
+                  email:
+                      user.primaryEmailAddress?.emailAddress || "",
+                  imageUrl: user.imageUrl,
+              }
+            : null,
+        isLoaded,
+        isSignedIn,
+    };
+}
 
-export const login = (email: string, password: string) =>
-    api<AuthResponse>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-    });
 
-export const register = (
-    name: string,
-    email: string,
-    password: string
-) =>
-    api<AuthResponse>("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ name, email, password }),
-    });
+export function useAuthToken() {
+    const { getToken, isLoaded, isSignedIn } = useAuth();
 
-export const logout = () =>
-    api<{ success: boolean; message: string }>("/auth/logout", {
-        method: "POST",
-    });
+    return {
+        getToken,
+        isLoaded,
+        isSignedIn,
+    };
+}
 
-export type MeResponse = {
-    success: boolean;
-    user: User;
-};
 
-export const getMe = () => api<MeResponse>("/auth/me");
+export function useLogout() {
+    const { signOut } = useClerk();
+
+    return {
+        logout: () => signOut({
+            redirectUrl: "/login",
+        }),
+    };
+}

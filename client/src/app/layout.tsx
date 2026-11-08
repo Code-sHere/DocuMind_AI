@@ -5,6 +5,8 @@ import "./globals.css";
 import { ThemeProvider } from "./theme-provide";
 import { Toaster } from "@/components/ui/sonner";
 
+import { ClerkProvider } from "@clerk/nextjs";
+
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
@@ -50,10 +52,12 @@ export default function RootLayout({
       className={`${inter.variable} ${sora.variable} ${jetbrains.variable}`}
     >
       <body>
-        <ThemeProvider>
-          {children}
-          <Toaster />
-        </ThemeProvider>
+        <ClerkProvider>
+          <ThemeProvider>
+            {children}
+            <Toaster />
+          </ThemeProvider>
+        </ClerkProvider>
       </body>
     </html>
   );
