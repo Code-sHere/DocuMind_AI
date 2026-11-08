@@ -1,7 +1,5 @@
-
+import { defaultRequest, type ApiRequest } from "./client";
 import type { Chat, Message } from "@/types/chat";
-
-const API_URL = `${process.env.NEXT_PUBLIC_API_URL}`;
 
 // Normalize MongoDB chat ID (_id) to frontend id
 function normalizeChat(chat: any): Chat {
@@ -32,60 +30,42 @@ function normalizeMessage(message: any): Message {
 }
 
 // Create a chat using selected document IDs
-export async function createChat(documentIds: string[]): Promise<Chat> {
-  const response = await fetch(`${API_URL}/chats`, {
+export async function createChat(
+  documentIds: string[],
+  request: ApiRequest = defaultRequest
+): Promise<Chat> {
+  const data = await request<{ success: boolean; chat: any }>("/chats", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
     body: JSON.stringify({ documentIds }),
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || "Unable to create chat");
-  }
 
   return normalizeChat(data.chat);
 }
 
 // Get all previous chats
-export async function getChats(): Promise<Chat[]> {
-  const response = await fetch(`${API_URL}/chats`, {
-    credentials: "include",
+export async function getChats(
+  request: ApiRequest = defaultRequest
+): Promise<Chat[]> {
+  const data = await request<{ success: boolean; chats: any[] }>("/chats", {
     cache: "no-store",
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || "Unable to load chats");
-  }
 
   return (data.chats || []).map(normalizeChat);
 }
 
 // Get messages belonging to one chat
-export async function getChatMessages(chatId: string): Promise<Message[]> {
+export async function getChatMessages(
+  chatId: string,
+  request: ApiRequest = defaultRequest
+): Promise<Message[]> {
   if (!chatId) {
     throw new Error("Chat ID is required.");
   }
 
-  const response = await fetch(
-    `${API_URL}/chats/${encodeURIComponent(chatId)}/messages`,
-    {
-      credentials: "include",
-      cache: "no-store",
-    }
+  const data = await request<{ success: boolean; messages: any[] }>(
+    `/chats/${encodeURIComponent(chatId)}/messages`,
+    { cache: "no-store" }
   );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || "Unable to load messages");
-  }
 
   return (data.messages || []).map(normalizeMessage);
 }
@@ -93,36 +73,22 @@ export async function getChatMessages(chatId: string): Promise<Message[]> {
 // Send a question to the RAG pipeline
 export async function sendChatMessage(
   chatId: string,
-  content: string
+  content: string,
+  request: ApiRequest = defaultRequest
 ): Promise<Message> {
   if (!chatId) {
     throw new Error("Chat ID is required.");
   }
 
-  const response = await fetch(
-    `${API_URL}/chats/${encodeURIComponent(chatId)}/messages`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ content }),
-    }
-  );
+  const data = await request<{
+    success: boolean;
+    data?: { userMessage?: any; assistantMessage?: any };
+  }>(`/chats/${encodeURIComponent(chatId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || "Unable to send message");
-  }
-
-  // Current backend response structure
-  const assistantMessage =
-    data.data?.assistantMessage ??
-    data.message?.assistantMessage ??
-    data.message ??
-    data.assistantMessage;
+  const assistantMessage = data.data?.assistantMessage;
 
   if (!assistantMessage || typeof assistantMessage !== "object") {
     throw new Error("Invalid assistant message response.");

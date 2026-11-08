@@ -147,14 +147,11 @@ const documentSchema = new Schema<IDocument>({
         default: [],
         required: false,
     },
-
-    createdAt: {
-        type: Date
-    },
-    updatedAt: {
-        type: Date,
-    },
-})
+},
+    // FIX: createdAt/updatedAt pehle normal fields the (kabhi set nahi hote the).
+    // timestamps:true se Mongoose inhe automatically bharta hai.
+    { timestamps: true }
+)
 
 // documentSchema.index({ ownerId: 1, workspaceId: 1, displayName: 1 }, { unique: true });
 

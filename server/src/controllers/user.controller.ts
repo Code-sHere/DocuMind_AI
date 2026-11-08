@@ -1,66 +1,91 @@
-import { application, type Request, type Response } from "express";
-import bcrypt from "bcryptjs";
+import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import { clerkClient } from "@clerk/express";
 
-import User from "../models/User.model.js"
+import User from "../models/User.model.js";
 import Document from "../models/Documents.model.js";
 import Chunk from "../models/Chunks.model.js";
 import Chat from "../models/Chats.model.js";
 import Message from "../models/Message.model.js";
 import DailyUsage from "../models/DailyUsage.js";
 
-const THEMES = ["ember", "emerald", "daylight"] as const;
+const allowedThemes = ["ember", "emerald", "daylight"];
 
-type Theme = (typeof THEMES)[number];
+// Clerk ke error se readable message nikalta hai
+const getClerkErrorMessage = (error: unknown, fallback: string): string => {
+    if (typeof error === "object" && error !== null && "errors" in error) {
+        const errors = (
+            error as { errors?: { longMessage?: string; message?: string }[] }
+        ).errors;
 
-// update profile
+        const first = errors?.[0];
+        const message = first?.longMessage ?? first?.message;
 
+        if (message) return message;
+    }
+
+    return fallback;
+};
+
+// ---------------------------------------------------------------------------
+// UPDATE PROFILE
+// FIX: Pehle yahan `User.findOne({ email: newEmail })` se user dhoondha jaata tha,
+// jo naya email hone par hamesha 404 deta tha. Ab seedha logged-in user update hota hai.
+// Clerk mein email verify karna padta hai, isliye email yahan change nahi hota.
+// ---------------------------------------------------------------------------
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
     try {
-
         const { name, email } = req.body;
 
-        if (typeof name !== "string" || typeof email !== "string") {
-            res.status(400).json({ success: false, message: "Provide a valid name and email" });
+        if (typeof name !== "string") {
+            res.status(400).json({ success: false, message: "Provide a valid name" });
             return;
         }
 
-        const normalizedEmail = email.trim().toLowerCase();
+        const trimmedName = name.trim();
 
-        const user = await User.findOne({ email: normalizedEmail });
+        if (trimmedName.length < 2 || trimmedName.length > 100) {
+            res.status(400).json({
+                success: false,
+                message: "Name must be between 2 and 100 characters",
+            });
+            return;
+        }
+
+        const user = await User.findById(req.userId);
 
         if (!user) {
             res.status(404).json({ success: false, message: "User not found" });
             return;
         }
 
-        const existingUser = await User.findOne({
-            email: normalizedEmail,
-            _id: { $ne: req.userId }
-        });
-
-        if (existingUser) {
-            res.status(409).json({ success: false, message: "User already exists" });
+        if (
+            typeof email === "string" &&
+            email.trim() &&
+            email.trim().toLowerCase() !== user.email
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Email cannot be changed here. It is managed by your sign-in account.",
+            });
             return;
         }
 
-        await User.findByIdAndUpdate(
-            req.userId,
-            {
-                $set: {
-                    name: name.trim(),
-                    email: normalizedEmail,
-                },
-            },
-            {
-                returnDocument: "after",
-                runValidators: true,
+        user.name = trimmedName;
+        await user.save();
+
+        // Clerk ke saath bhi naam sync karo (fail ho to bhi profile save ho chuka hai)
+        if (user.clerkUserId) {
+            try {
+                const [firstName, ...rest] = trimmedName.split(/\s+/);
+
+                await clerkClient.users.updateUser(user.clerkUserId, {
+                    firstName,
+                    lastName: rest.join(" "),
+                });
+            } catch (clerkError) {
+                console.error("Clerk name sync failed:", clerkError);
             }
-        ).select("name email theme stats createdAt");
-
-        if (!user) {
-            res.status(404).json({ success: false, message: "User not found" });
-            return;
         }
 
         res.status(200).json({
@@ -72,8 +97,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
                 theme: user.theme,
                 createdAt: user.createdAt,
             },
-        })
-
+        });
     } catch (err) {
         console.error("Update profile error:", err);
 
@@ -82,52 +106,52 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
             message: "Unable to update profile.",
         });
     }
-}
-
-// update theme
-const allowedThemes = ["ember", "emerald", "daylight"];
-
-export const updateTheme = async (req: Request, res: Response) => {
-  try {
-    const { theme } = req.body;
-    const userId = req.userId;
-
-    if (!allowedThemes.includes(theme)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid theme",
-      });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { theme },
-      { new: true, runValidators: true }
-    ).select("-password");
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Theme updated successfully",
-      theme: user.theme,
-    });
-  } catch (error) {
-    console.error("Theme update error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update theme",
-    });
-  }
 };
 
-// change password
+// ---------------------------------------------------------------------------
+// UPDATE THEME
+// ---------------------------------------------------------------------------
+export const updateTheme = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { theme } = req.body;
+
+        if (typeof theme !== "string" || !allowedThemes.includes(theme)) {
+            res.status(400).json({ success: false, message: "Invalid theme" });
+            return;
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.userId,
+            { theme },
+            { new: true, runValidators: true }
+        ).select("theme");
+
+        if (!user) {
+            res.status(404).json({ success: false, message: "User not found" });
+            return;
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Theme updated successfully",
+            theme: user.theme,
+        });
+    } catch (error) {
+        console.error("Theme update error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Failed to update theme",
+        });
+    }
+};
+
+// ---------------------------------------------------------------------------
+// CHANGE PASSWORD
+// FIX: Password ab Clerk ke paas hota hai (MongoDB mein passwordHash nahi hota),
+// isliye pehle wala bcrypt.compare(undefined) crash karta tha. Ab Clerk API se
+// current password verify karke naya password set hota hai.
+// ---------------------------------------------------------------------------
 export const changePassword = async (req: Request, res: Response): Promise<void> => {
     try {
         const { currentPassword, newPassword } = req.body;
@@ -146,31 +170,62 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        const user = await User.findById(req.userId).select("+passwordHash");
+        if (currentPassword === newPassword) {
+            res.status(400).json({
+                success: false,
+                message: "New password must be different from current password",
+            });
+            return;
+        }
 
-        if(!user) {
+        const user = await User.findById(req.userId);
+
+        if (!user || !user.clerkUserId) {
             res.status(404).json({ success: false, message: "User not found" });
             return;
         }
-        const isPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
 
-        if (!isPasswordValid) {
-            res.status(401).json({ success: false, message: "Invalid password" });
+        const clerkUser = await clerkClient.users.getUser(user.clerkUserId);
+
+        if (!clerkUser.passwordEnabled) {
+            res.status(400).json({
+                success: false,
+                message: "Your account signs in with a social provider and has no password.",
+            });
             return;
         }
 
-        const samePassword = await bcrypt.compare(newPassword, user.passwordHash);
+        let verified = false;
 
-        if (samePassword) {
-            res.status(400).json({ success: false, message: "New password must be different from current password" });
+        try {
+            const result = await clerkClient.users.verifyPassword({
+                userId: user.clerkUserId,
+                password: currentPassword,
+            });
+
+            verified = result.verified;
+        } catch {
+            verified = false;
+        }
+
+        if (!verified) {
+            res.status(401).json({ success: false, message: "Current password is incorrect" });
             return;
         }
 
-        user.passwordHash = await bcrypt.hash(newPassword, 12);
-        await user.save();
+        try {
+            await clerkClient.users.updateUser(user.clerkUserId, {
+                password: newPassword,
+            });
+        } catch (clerkError) {
+            res.status(422).json({
+                success: false,
+                message: getClerkErrorMessage(clerkError, "Password was rejected."),
+            });
+            return;
+        }
 
         res.status(200).json({ success: true, message: "Password changed successfully" });
-
     } catch (err) {
         console.error("Change password error:", err);
 
@@ -179,23 +234,21 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
             message: "Unable to change password.",
         });
     }
-}
+};
 
-export const exportUserData = async(req: Request, res: Response): Promise<void> => {
-    try{
+// ---------------------------------------------------------------------------
+// EXPORT USER DATA
+// ---------------------------------------------------------------------------
+export const exportUserData = async (req: Request, res: Response): Promise<void> => {
+    try {
         const user = await User.findById(req.userId).select("-passwordHash");
 
-        if(!user) {
+        if (!user) {
             res.status(404).json({ success: false, message: "User not found" });
             return;
         }
 
-        const [
-            documents,
-            chats,
-            messages,
-            dailyUsage,
-        ] = await Promise.all([
+        const [documents, chats, messages, dailyUsage] = await Promise.all([
             Document.find({ ownerId: req.userId })
                 .select("-storageKey -extractedText")
                 .lean(),
@@ -209,9 +262,9 @@ export const exportUserData = async(req: Request, res: Response): Promise<void> 
 
         const exportData = {
             exportedAt: new Date().toISOString(),
-            application:"DocuMind AI",
+            application: "DocuMind AI",
 
-            profile:{
+            profile: {
                 id: user._id,
                 name: user.name,
                 email: user.email,
@@ -224,30 +277,33 @@ export const exportUserData = async(req: Request, res: Response): Promise<void> 
             chats,
             messages,
             dailyUsage,
-        }
+        };
 
         const filename = `document-data-${new Date().toISOString().slice(0, 10)}.json`;
 
-        res.setHeader(
-            "Content-Disposition",
-            `attachment; filename=${filename}`
-        )
-
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
         res.setHeader("Content-Type", "application/json");
 
         res.status(200).json(exportData);
-    }catch(error){
+    } catch (error) {
         console.error("Export user data error:", error);
         res.status(500).json({ success: false, message: "Unable to export user data." });
     }
-}
+};
 
-// delete account
+// ---------------------------------------------------------------------------
+// DELETE ACCOUNT
+// FIX: Ab Clerk account bhi delete hota hai (pehle sirf MongoDB data jaata tha,
+// aur purana "token" cookie clear karne ka code bekaar tha).
+// ---------------------------------------------------------------------------
 export const deleteAccount = async (
     req: Request,
     res: Response
 ): Promise<void> => {
     const session = await mongoose.startSession();
+
+    // `as` use kiya hai taaki TypeScript callback ke andar hua assignment bhi maane
+    let clerkUserId = undefined as string | undefined;
 
     try {
         await session.withTransaction(async () => {
@@ -257,51 +313,27 @@ export const deleteAccount = async (
                 throw new Error("USER_NOT_FOUND");
             }
 
-            const documents = await Document.find({
-                ownerId: req.userId,
-            })
-                .select("_id")
-                .session(session)
-                .lean();
-
-            const documentIds = documents.map((doc) => doc._id);
+            clerkUserId = user.clerkUserId;
 
             await Promise.all([
-                Chunk.deleteMany({
-                    ownerId: req.userId,
-                }).session(session),
-
-                Message.deleteMany({
-                    ownerId: req.userId,
-                }).session(session),
-
-                Chat.deleteMany({
-                    ownerId: req.userId,
-                }).session(session),
-
-                Document.deleteMany({
-                    ownerId: req.userId,
-                }).session(session),
-
-                DailyUsage.deleteMany({
-                    userId: req.userId,
-                }).session(session),
+                Chunk.deleteMany({ ownerId: req.userId }).session(session),
+                Message.deleteMany({ ownerId: req.userId }).session(session),
+                Chat.deleteMany({ ownerId: req.userId }).session(session),
+                Document.deleteMany({ ownerId: req.userId }).session(session),
+                DailyUsage.deleteMany({ userId: req.userId }).session(session),
             ]);
 
-            await User.deleteOne({
-                _id: req.userId,
-            }).session(session);
+            await User.deleteOne({ _id: req.userId }).session(session);
         });
 
-        const { maxAge, ...clearOptions } = {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax" as const,
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-            path: "/",
-        };
-
-        res.clearCookie("token", clearOptions);
+        // Database clean ho gaya, ab Clerk account hatao
+        if (clerkUserId) {
+            try {
+                await clerkClient.users.deleteUser(clerkUserId);
+            } catch (clerkError) {
+                console.error("Clerk user deletion failed:", clerkError);
+            }
+        }
 
         res.status(200).json({
             success: true,

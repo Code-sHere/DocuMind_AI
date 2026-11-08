@@ -60,7 +60,7 @@ export default function ChatPage() {
           getChats(),
         ]);
  
-        setDocuments(documentRsult.documents);
+        setDocuments(documentRsult);
         setChats(chatResult);
       } catch (err) {
         console.log(err);
@@ -651,4 +651,3 @@ export default function ChatPage() {
     </>
   );
 }
- 

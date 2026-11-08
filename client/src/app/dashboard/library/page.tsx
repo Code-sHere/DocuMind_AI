@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { UploadCloud, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,8 +29,6 @@ import UploadPanel from "@/components/documents/UploadingPanel";
 import DocumentStats from "@/components/documents/DoumentStats";
 
 export default function LibraryPage() {
-  const router = useRouter();
-
   // Documents
   const [documents, setDocuments] = useState<DocItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,9 +54,9 @@ export default function LibraryPage() {
     try {
       setLoading(true);
 
-      const response = await listDocuments();
+      const items = await listDocuments();
 
-      setDocuments(response.documents ?? []);
+      setDocuments(items);
     } catch (error) {
       console.error("Load documents error:", error);
 
@@ -84,9 +81,18 @@ export default function LibraryPage() {
         if (active) {
           await loadDocuments();
         }
-      } catch {
+      } catch (error) {
+        // Pehle yahan /login par redirect hota tha. Clerk signed-in user ko
+        // wapas bhej deta hai, isliye loop banta tha. Ab sirf error dikhate hain.
+        console.error("Library authentication error:", error);
+
         if (active) {
-          router.replace("/login");
+          setLoading(false);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Unable to load your workspace."
+          );
         }
       }
     }
@@ -96,7 +102,7 @@ export default function LibraryPage() {
     return () => {
       active = false;
     };
-  }, [router, loadDocuments]);
+  }, [loadDocuments]);
 
   // Upload documents
   const handleUpload = async () => {

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
@@ -16,7 +17,10 @@ export function useApi() {
       const token = await getToken();
 
       if (!token) {
-        throw new ApiError("Please sign in to continue", 401);
+        throw new ApiError(
+          "Please sign in to continue",
+          401
+        );
       }
 
       return api<T>(path, init, token);

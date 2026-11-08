@@ -2,13 +2,18 @@ import type { Request, Response, NextFunction } from "express";
 import { getAuth, clerkClient } from "@clerk/express";
 import User from "../models/User.model.js";
 
+const isDuplicateKeyError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: number }).code === 11000;
+
 export const requireAuth = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-   
     const { userId } = getAuth(req);
 
     if (!userId) {
@@ -21,7 +26,6 @@ export const requireAuth = async (
 
     let user = await User.findOne({ clerkUserId: userId });
 
-    
     if (!user) {
       const clerkUser = await clerkClient.users.getUser(userId);
 
@@ -31,11 +35,7 @@ export const requireAuth = async (
 
       const email = primaryEmail?.emailAddress.toLowerCase().trim();
 
-
-      if (
-        !email ||
-        primaryEmail?.verification?.status !== "verified"
-      ) {
+      if (!email || primaryEmail?.verification?.status !== "verified") {
         res.status(403).json({
           success: false,
           message: "A verified primary email is required",
@@ -43,32 +43,45 @@ export const requireAuth = async (
         return;
       }
 
+      const fullName = [clerkUser.firstName, clerkUser.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+      // User model mein name ki minlength 2 hai
       const name =
-        [clerkUser.firstName, clerkUser.lastName]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "DocuMind User";
+        fullName.length >= 2 ? fullName.slice(0, 100) : "DocuMind User";
 
+      try {
+        user = await User.findOne({ email });
 
-      user = await User.findOne({ email });
+        if (user) {
+          if (user.clerkUserId && user.clerkUserId !== userId) {
+            res.status(409).json({
+              success: false,
+              message: "This email is linked to another account",
+            });
+            return;
+          }
 
-      if (user) {
-        if (user.clerkUserId && user.clerkUserId !== userId) {
-          res.status(409).json({
-            success: false,
-            message: "This email is linked to another account",
+          user.clerkUserId = userId;
+          await user.save();
+        } else {
+          user = await User.create({
+            clerkUserId: userId,
+            name,
+            email,
           });
-          return;
         }
+      } catch (error) {
+        // FIX: Pehli baar login par dashboard 2 requests ek saath bhejta hai
+        // (React StrictMode / parallel calls). Dono user banane ki koshish karti
+        // thi aur ek ko duplicate-key error se 500 mil jaata tha.
+        if (!isDuplicateKeyError(error)) throw error;
 
-        user.clerkUserId = userId;
-        await user.save();
-      } else {
-        user = await User.create({
-          clerkUserId: userId,
-          name,
-          email,
-        });
+        user = await User.findOne({ clerkUserId: userId });
+
+        if (!user) throw error;
       }
     }
 
