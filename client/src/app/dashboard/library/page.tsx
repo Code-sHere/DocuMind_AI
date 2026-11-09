@@ -82,8 +82,7 @@ export default function LibraryPage() {
           await loadDocuments();
         }
       } catch (error) {
-        // Pehle yahan /login par redirect hota tha. Clerk signed-in user ko
-        // wapas bhej deta hai, isliye loop banta tha. Ab sirf error dikhate hain.
+
         console.error("Library authentication error:", error);
 
         if (active) {

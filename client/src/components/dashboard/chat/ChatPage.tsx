@@ -24,12 +24,9 @@ interface Citation {
   documentName: string;
   pageNumber: number;
 }
- 
-// Uses the .glass and .btn-gradient classes from globals.css,
-// so every theme (ember, emerald, daylight) is handled automatically.
 const glass = "glass";
  
-// Softer surface used for cards that sit INSIDE the blurred middle panel.
+
 const inner =
   "rounded-xl border border-border bg-background/50 backdrop-blur-md";
  
@@ -214,10 +211,9 @@ export default function ChatPage() {
  
   return (
     <>
-      {/* Remove this line if (app)/layout.tsx already renders the top bar. */}
+  
       <Sidebar />
  
-      {/* pt-28 clears the fixed top bar. Height is automatic: the page grows with its content. */}
       <main className="min-h-screen overflow-x-hidden px-3 pb-5 pt-28 text-foreground sm:px-4 lg:px-5">
         <section className="mx-auto grid w-full max-w-[1500px] grid-cols-1 gap-3 lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_320px]">
           {/* =====================================

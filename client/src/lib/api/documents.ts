@@ -90,8 +90,7 @@ export const uploadDocuments = async (
 ): Promise<DocItem[]> => {
   const formData = new FormData();
 
-  // IMPORTANT: server `upload.array("files", 5)` use karta hai,
-  // isliye field name "files" hona chahiye ("documents" nahi).
+ 
   files.forEach((file) => {
     formData.append("files", file);
   });

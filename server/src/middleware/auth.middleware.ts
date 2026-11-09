@@ -74,9 +74,7 @@ export const requireAuth = async (
           });
         }
       } catch (error) {
-        // FIX: Pehli baar login par dashboard 2 requests ek saath bhejta hai
-        // (React StrictMode / parallel calls). Dono user banane ki koshish karti
-        // thi aur ek ko duplicate-key error se 500 mil jaata tha.
+        
         if (!isDuplicateKeyError(error)) throw error;
 
         user = await User.findOne({ clerkUserId: userId });

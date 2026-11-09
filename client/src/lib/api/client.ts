@@ -16,14 +16,6 @@ export class ApiError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Clerk token (hooks ke bina)
-//
-// Server ka `requireAuth` Clerk ka Bearer token maangta hai. Pehle sirf
-// `useApi()` token bhejta tha; baaki sab functions (chat, usage, settings...)
-// bina token ke request bhej rahe the, isliye server 401 de raha tha.
-// Ab `api()` khud browser ke Clerk session se token utha leta hai.
-// ---------------------------------------------------------------------------
 
 type ClerkBrowser = {
   loaded?: boolean;
@@ -111,6 +103,4 @@ export async function api<T>(
   return data as T;
 }
 
-// Default request function: token automatically Clerk se aata hai.
-// Isko `request` ki jagah use kiya jaata hai jab hook available nahi hota.
 export const defaultRequest: ApiRequest = api;

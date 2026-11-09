@@ -146,7 +146,8 @@ export default function Sidebar() {
                 <div
                     className={cn(
                         "relative flex h-16 items-center justify-between gap-2 overflow-hidden rounded-full px-2 sm:px-3",
-                        "border border-white/30 bg-white/40 shadow-[0_12px_40px_rgba(0,0,0,0.12)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/[0.06]"
+                        "border border-white/30 bg-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.12)] backdrop-blur-xl backdrop-saturate-150",
+                        "dark:border-white/10 dark:bg-black/40"
                     )}
                 >
                     {/* Logo */}
@@ -235,13 +236,13 @@ export default function Sidebar() {
                             type="button"
                             aria-label="Close navigation"
                             onClick={() => setIsOpen(false)}
-                            className="fixed inset-0 -z-10 bg-black/30 backdrop-blur-sm md:hidden"
+                            className="fixed inset-0 -z-10 bg-black/30 backdrop-blur-md md:hidden"
                         />
 
                         <nav
                             id="mobile-menu"
                             aria-label="Dashboard"
-                            className="absolute inset-x-0 top-full mt-2 flex flex-col gap-1 rounded-3xl border border-white/20 bg-background/95 p-2 shadow-xl backdrop-blur-2xl md:hidden"
+                            className="absolute inset-x-0 top-full mt-2 flex flex-col gap-1 rounded-3xl border border-white/20 bg-background/80 p-2 shadow-xl backdrop-blur-xl backdrop-saturate-150 md:hidden"
                         >
                             {navItems.map((item) => {
                                 const active = isActive(item.href);

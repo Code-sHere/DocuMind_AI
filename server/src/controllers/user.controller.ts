@@ -27,12 +27,7 @@ const getClerkErrorMessage = (error: unknown, fallback: string): string => {
     return fallback;
 };
 
-// ---------------------------------------------------------------------------
-// UPDATE PROFILE
-// FIX: Pehle yahan `User.findOne({ email: newEmail })` se user dhoondha jaata tha,
-// jo naya email hone par hamesha 404 deta tha. Ab seedha logged-in user update hota hai.
-// Clerk mein email verify karna padta hai, isliye email yahan change nahi hota.
-// ---------------------------------------------------------------------------
+
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
     try {
         const { name, email } = req.body;
@@ -74,7 +69,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
         user.name = trimmedName;
         await user.save();
 
-        // Clerk ke saath bhi naam sync karo (fail ho to bhi profile save ho chuka hai)
+        
         if (user.clerkUserId) {
             try {
                 const [firstName, ...rest] = trimmedName.split(/\s+/);
@@ -108,9 +103,6 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     }
 };
 
-// ---------------------------------------------------------------------------
-// UPDATE THEME
-// ---------------------------------------------------------------------------
 export const updateTheme = async (req: Request, res: Response): Promise<void> => {
     try {
         const { theme } = req.body;
@@ -146,12 +138,7 @@ export const updateTheme = async (req: Request, res: Response): Promise<void> =>
     }
 };
 
-// ---------------------------------------------------------------------------
-// CHANGE PASSWORD
-// FIX: Password ab Clerk ke paas hota hai (MongoDB mein passwordHash nahi hota),
-// isliye pehle wala bcrypt.compare(undefined) crash karta tha. Ab Clerk API se
-// current password verify karke naya password set hota hai.
-// ---------------------------------------------------------------------------
+
 export const changePassword = async (req: Request, res: Response): Promise<void> => {
     try {
         const { currentPassword, newPassword } = req.body;
@@ -236,9 +223,6 @@ export const changePassword = async (req: Request, res: Response): Promise<void>
     }
 };
 
-// ---------------------------------------------------------------------------
-// EXPORT USER DATA
-// ---------------------------------------------------------------------------
 export const exportUserData = async (req: Request, res: Response): Promise<void> => {
     try {
         const user = await User.findById(req.userId).select("-passwordHash");
@@ -291,18 +275,13 @@ export const exportUserData = async (req: Request, res: Response): Promise<void>
     }
 };
 
-// ---------------------------------------------------------------------------
-// DELETE ACCOUNT
-// FIX: Ab Clerk account bhi delete hota hai (pehle sirf MongoDB data jaata tha,
-// aur purana "token" cookie clear karne ka code bekaar tha).
-// ---------------------------------------------------------------------------
+
 export const deleteAccount = async (
     req: Request,
     res: Response
 ): Promise<void> => {
     const session = await mongoose.startSession();
 
-    // `as` use kiya hai taaki TypeScript callback ke andar hua assignment bhi maane
     let clerkUserId = undefined as string | undefined;
 
     try {
@@ -326,7 +305,6 @@ export const deleteAccount = async (
             await User.deleteOne({ _id: req.userId }).session(session);
         });
 
-        // Database clean ho gaya, ab Clerk account hatao
         if (clerkUserId) {
             try {
                 await clerkClient.users.deleteUser(clerkUserId);

@@ -2,10 +2,6 @@ import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 
 import { defaultRequest, type ApiRequest } from "./client";
 
-// ================= BACKEND PROFILE (MongoDB) =================
-// Dashboard / Settings `getMe` use karte hain. Pehle Clerk migration mein
-// ye function hat gaya tha, isliye "getMe is not defined" error aa raha tha.
-
 export type MeUser = {
   id: string;
   name: string;

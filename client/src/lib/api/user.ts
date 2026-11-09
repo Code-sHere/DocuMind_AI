@@ -35,8 +35,7 @@ export type BasicResponse = {
   message: string;
 };
 
-// `request` optional hai: na dene par token automatically Clerk se aata hai,
-// isliye SettingPage jaise purane callers (jo request nahi dete) bhi chalenge.
+
 
 // Update profile
 export const updateProfile = (

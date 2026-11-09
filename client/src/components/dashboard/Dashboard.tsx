@@ -18,7 +18,6 @@ import {
   FilePlus2,
 } from "lucide-react";
  
-// FIX 1: getMe pehle import hi nahi tha -> "ReferenceError: getMe is not defined"
 import { getMe, type MeUser } from "@/lib/api/auth";
 import { getUsage } from "@/lib/api/usage";
  
@@ -39,7 +38,6 @@ export default function Dashboard() {
   const { isLoaded, isSignedIn } = useUser();
   const { signOut } = useAuth();
  
-  // `request` ko ref mein rakha hai taaki effects baar-baar re-run na ho
   const requestRef = useRef(request);
  
   useEffect(() => {
@@ -71,7 +69,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isLoaded) return;
  
-    // Clerk ke hisaab se user logged-out ho tabhi login par bhejo
+    // Clerk ke hisaab se user logged-out ho tabhi login 
     if (!isSignedIn) {
       setLoading(false);
       router.replace("/login");
@@ -91,7 +89,7 @@ export default function Dashboard() {
  
         setUser(result.user);
  
-        // Usage optional hai: fail ho to dashboard phir bhi khulna chahiye
+        // Usage optional hai: fail ho to dashboard
         try {
           const usageResult = await getUsage(requestRef.current);
  
@@ -106,10 +104,7 @@ export default function Dashboard() {
         }
       } catch (error) {
         console.error("Dashboard authentication error:", error);
- 
-        // FIX 2: Yahan pehle har error par router.replace("/login") hota tha.
-        // Clerk signed-in user ko wapas /dashboard bhej deta tha -> infinite loop.
-        // Ab error screen dikhti hai (Try again / Log out).
+
         if (active) {
           setLoadError(
             error instanceof Error
@@ -181,9 +176,6 @@ export default function Dashboard() {
       setDocuments(result);
       setFiles([]);
       setError("");
- 
-      // Server HTTP 200 deta hai chahe processing fail ho gayi ho,
-      // isliye har document ka status check karte hain.
       const failedCount = uploaded.filter(
         (doc) => doc.status === "failed"
       ).length;
