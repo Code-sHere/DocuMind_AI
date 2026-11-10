@@ -14,7 +14,7 @@ import usageRoutes from "./routes/usage.routes.js";
 const app = express();
 
 const allowedOrigins = (
-  process.env.CLIENT_URL || "https://docu-mind-ai-q4ya.vercel.app"
+  process.env.CLIENT_URL || "https://docu-mind-ai-tau-orcin.vercel.app/"
 )
   .split(",")
   .map((origin) => origin.trim());
