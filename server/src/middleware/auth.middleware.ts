@@ -16,6 +16,15 @@ export const requireAuth = async (
   try {
     const { userId } = getAuth(req);
 
+    const auth = getAuth(req);
+
+    console.log("CLERK AUTH DEBUG:", {
+      userId: auth.userId,
+      sessionId: auth.sessionId,
+      origin: req.headers.origin,
+      authorizationPresent: Boolean(req.headers.authorization),
+    });
+
     if (!userId) {
       res.status(401).json({
         success: false,
@@ -74,7 +83,7 @@ export const requireAuth = async (
           });
         }
       } catch (error) {
-        
+
         if (!isDuplicateKeyError(error)) throw error;
 
         user = await User.findOne({ clerkUserId: userId });

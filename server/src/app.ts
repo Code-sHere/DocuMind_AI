@@ -14,7 +14,7 @@ import usageRoutes from "./routes/usage.routes.js";
 const app = express();
 
 const allowedOrigins = (
-  process.env.CLIENT_URL || "https://docu-mind-ai-tau-orcin.vercel.app/"
+  process.env.CLIENT_URL || "http://localhost:3000"
 )
   .split(",")
   .map((origin) => origin.trim());
@@ -33,6 +33,14 @@ app.use(
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  })
+);
+
+app.use(
+  clerkMiddleware({
+    publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+    secretKey: process.env.CLERK_SECRET_KEY,
+    authorizedParties: allowedOrigins,
   })
 );
 

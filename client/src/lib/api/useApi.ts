@@ -15,6 +15,10 @@ export function useApi() {
       init: RequestInit = {}
     ): Promise<T> => {
       const token = await getToken();
+      console.log("CLERK FRONTEND DEBUG:", {
+        hasToken: Boolean(token),
+        tokenLength: token?.length ?? 0,
+      });
 
       if (!token) {
         throw new ApiError(

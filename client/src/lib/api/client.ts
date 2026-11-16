@@ -1,5 +1,5 @@
 const BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://documind-ai-bx5d.onrender.com/api";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
 
 export type ApiRequest = <T>(
   path: string,
