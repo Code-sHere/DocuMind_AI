@@ -461,7 +461,7 @@ export default function ChatPage() {
                           DocuMind AI
                         </span>
  
-                        {message.trustLevel && (
+                        {message.trustLevel && message.trustLevel !== "conversation" && (
                           <span className="text-[10px] font-medium text-success">
                             {message.trustLevel === "strong"
                               ? "Strong evidence"

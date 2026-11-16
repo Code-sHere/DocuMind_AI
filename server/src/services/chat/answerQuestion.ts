@@ -2,7 +2,6 @@
 import type { Types } from "mongoose";
 import { retrieveChunks } from "../../jobs/retrieve.js";
 import {
-    classifyIntent,
     generateAnswer,
     LLM_MODEL,
 } from "../output/generateanswer.js";
@@ -47,6 +46,22 @@ const NOT_FOUND_TEXT =
 
 const STRONG_SCORE = 0.75;
 
+
+// A chat always has documents attached, so the default is "document".
+// Only clear small talk skips the documents. (The old LLM classifier
+// wrongly sent "give me all headings" / "summarize this" to conversation.)
+const SMALL_TALK =
+    /^\s*(hi+|hello+|hey+|namaste|thanks?|thank you|thx|ok(ay)?|theek( hai)?|thik( hai)?|bye|good (morning|evening|night)|cool|great|nice|got it)\W*$/i;
+
+const GENERATION =
+    /\b(generate|create|make|prepare|give|write)\b.*\b(questions?|mcqs?|quiz|flashcards?|notes|study guide|practice test|question paper)\b/i;
+
+const detectResponseType = (question: string): ResponseType => {
+    if (SMALL_TALK.test(question)) return "conversation";
+    if (GENERATION.test(question)) return "generation";
+    return "document";
+};
+
 const sanitizeAnswer = (answer: string): string => {
     return answer
         // Remove complete internal citation references.
@@ -77,7 +92,7 @@ export const answerQuestion = async (
     const conversation = buildConversation(history);
 
     // 1. Detect what the user actually wants before retrieving documents.
-    const responseType = await classifyIntent(question, history);
+    const responseType = detectResponseType(question);
 
     // 2. Normal conversation does not require document retrieval.
     if (responseType === "conversation") {

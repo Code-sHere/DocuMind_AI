@@ -19,6 +19,6 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
-  trustLevel?: "strong" | "partial" | "not_found";
+  trustLevel?: "strong" | "partial" | "not_found" | "conversation";
   createdAt?: string;
 }
